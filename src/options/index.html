@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Backlog Sabori PowerTools - 設定</title>
+    <link rel="icon" type="image/png" href="../assets/icons/backlog-favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 24px;
+        max-width: 520px;
+      }
+      label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+      input,
+      select,
+      button {
+        width: 100%;
+        padding: 8px;
+        border-radius: 8px;
+        border: 1px solid #c7c7d0;
+        font-size: 14px;
+        box-sizing: border-box;
+      }
+      button {
+        cursor: pointer;
+        background: #2563eb;
+        color: #fff;
+        border: none;
+        margin-top: 12px;
+      }
+      .field {
+        margin-bottom: 16px;
+      }
+      .field__note {
+        font-size: 12px;
+        color: #475569;
+        margin: 6px 0 0 4px;
+      }
+      .toggle-group {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 12px;
+        border: 1px solid #d4d4dd;
+        border-radius: 12px;
+        background: #f8fafc;
+      }
+      .toggle {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .toggle__control {
+        position: relative;
+        width: 42px;
+        height: 24px;
+      }
+      .toggle__control input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+        position: absolute;
+      }
+      .toggle__track {
+        position: absolute;
+        cursor: pointer;
+        inset: 0;
+        background: #cbd5f5;
+        border-radius: 999px;
+        transition: background 0.2s ease;
+      }
+      .toggle__thumb {
+        position: absolute;
+        left: 4px;
+        top: 4px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #ffffff;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.25);
+        transition: transform 0.2s ease;
+      }
+      .toggle__control input:checked + .toggle__track {
+        background: #2563eb;
+      }
+      .toggle__control input:checked + .toggle__track .toggle__thumb {
+        transform: translateX(18px);
+      }
+      .toggle__label {
+        font-weight: 600;
+        color: #1e293b;
+      }
+      .status {
+        margin-top: 16px;
+        font-size: 13px;
+      }
+      .prompt-card {
+        margin-top: 32px;
+        padding: 16px;
+        border: 1px solid #d4d4dd;
+        border-radius: 16px;
+        background: #f8fafc;
+      }
+      .prompt-card h2 {
+        margin: 0 0 12px;
+        font-size: 18px;
+      }
+      textarea {
+        width: 100%;
+        min-height: 320px;
+        padding: 12px;
+        border-radius: 12px;
+        border: 1px solid #c7c7d0;
+        font-size: 13px;
+        font-family: "Fira Code", "Menlo", monospace;
+        resize: vertical;
+        box-sizing: border-box;
+      }
+      .prompt-actions {
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+        margin-top: 12px;
+      }
+      .btn-secondary {
+        background: #e2e8f0;
+        color: #0f172a;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Backlog API 設定</h1>
+    <p>スペースドメインと個人 API キーを登録してください。</p>
+    <form id="auth-form">
+      <div class="field">
+        <label for="space-domain">スペースドメイン</label>
+        <input id="space-domain" name="spaceDomain" placeholder="example" required />
+      </div>
+      <div class="field">
+        <label for="host">ホスト</label>
+        <select id="host" name="host" required>
+          <option value="backlog.com">backlog.com</option>
+          <option value="backlog.jp">backlog.jp</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="api-key">API キー</label>
+        <input id="api-key" name="apiKey" type="password" required />
+      </div>
+      <div class="field">
+        <p class="field__note">表示したくない期限日セクションはトグルをオフにしてください。</p>
+        <div class="toggle-group">
+          <label class="toggle">
+            <span class="toggle__control">
+              <input id="show-tomorrow" name="showTomorrowSection" type="checkbox" checked />
+              <span class="toggle__track">
+                <span class="toggle__thumb"></span>
+              </span>
+            </span>
+            <span class="toggle__label">「期限日：今週」を表示する</span>
+          </label>
+          <label class="toggle">
+            <span class="toggle__control">
+              <input id="show-no-due" name="showNoDueSection" type="checkbox" checked />
+              <span class="toggle__track">
+                <span class="toggle__thumb"></span>
+              </span>
+            </span>
+            <span class="toggle__label">「期限日：空欄」を表示する</span>
+          </label>
+        </div>
+      </div>
+      <button type="submit">保存</button>
+      <button type="button" id="clear-auth" style="background:#0f172a;margin-top:8px;">クリア</button>
+    </form>
+    <p class="status" id="status"></p>
+
+    <section class="prompt-card">
+      <h2>ChatGPT プロンプト設定</h2>
+      <p class="field__note">以下のプレースホルダーを利用できます: {{TODAY}}, {{ISSUE_TYPES}}, {{CATEGORIES}}, {{ASSIGNEES}}, {{INPUT_TEXT}}, {{JSON_SCHEMA}}</p>
+      <form id="prompt-form">
+        <textarea id="prompt-template" name="promptTemplate"></textarea>
+        <div class="prompt-actions">
+          <button type="button" id="prompt-reset" class="btn-secondary">リセット</button>
+          <button type="submit">保存</button>
+        </div>
+      </form>
+      <p class="status" id="prompt-status"></p>
+    </section>
+    <script type="module" src="./index.js"></script>
+  </body>
+</html>

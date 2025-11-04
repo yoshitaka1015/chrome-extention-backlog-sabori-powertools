@@ -1,0 +1,16 @@
+{
+  "name": "backlog-manager-extension",
+  "version": "0.1.0",
+  "description": "Chrome extension that overlays Backlog tasks and provides an integrated side panel workflow.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "clean": "node scripts/clean.mjs"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.258",
+    "esbuild": "^0.21.5",
+    "typescript": "^5.4.5"
+  }
+}

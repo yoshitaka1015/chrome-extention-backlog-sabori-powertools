@@ -1,0 +1,81 @@
+{
+  "manifest_version": 3,
+  "name": "Backlog Sabori PowerTools",
+  "description": "Overlay urgent Backlog issues and manage tickets from a unified Chrome side panel.",
+  "version": "0.1.0",
+  "icons": {
+    "16": "assets/icons/backlog-favicon.png",
+    "32": "assets/icons/backlog-favicon.png",
+    "48": "assets/icons/backlog-favicon.png",
+    "128": "assets/icons/backlog-favicon.png"
+  },
+  "action": {
+    "default_title": "Open Backlog Sabori PowerTools",
+    "default_icon": {
+      "16": "assets/icons/backlog-favicon.png",
+      "32": "assets/icons/backlog-favicon.png"
+    }
+  },
+  "permissions": [
+    "sidePanel",
+    "storage",
+    "notifications",
+    "activeTab",
+    "scripting",
+    "webNavigation",
+    "clipboardRead",
+    "clipboardWrite",
+    "contextMenus"
+  ],
+  "optional_host_permissions": [
+    "https://*.backlog.com/*",
+    "https://*.backlog.jp/*"
+  ],
+  "host_permissions": [
+    "https://chat.openai.com/*",
+    "https://chatgpt.com/*"
+  ],
+  "background": {
+    "service_worker": "background/serviceWorker.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/index.html"
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+G"
+      }
+    },
+    "toggle-side-panel": {
+      "suggested_key": {
+        "default": "Alt+Shift+G"
+      },
+      "description": "Toggle Backlog Sabori PowerTools side panel"
+    }
+  },
+  "options_page": "options/index.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*/*",
+        "http://*/*"
+      ],
+      "js": [
+        "content/topbar/index.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://chat.openai.com/*",
+        "https://chatgpt.com/*"
+      ],
+      "js": [
+        "content/chatgpt/index.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
