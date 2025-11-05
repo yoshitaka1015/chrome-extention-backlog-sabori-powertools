@@ -36,7 +36,8 @@ function backlogBaseUrl(config) {
 
 // src/background/backlogClient.ts
 var CACHE_TTL_MS = 10 * 60 * 1e3;
-var MAX_FETCH_COUNT = 100;
+var MAX_FETCH_COUNT = 1e3;
+var MAX_PAGE_SIZE = 100;
 var cachedBuckets = null;
 var projectStatusCache = /* @__PURE__ */ new Map();
 var projectInfoCache = /* @__PURE__ */ new Map();
@@ -44,7 +45,6 @@ var projectCategoryCache = /* @__PURE__ */ new Map();
 var projectIssueTypeCache = /* @__PURE__ */ new Map();
 var projectUserCache = /* @__PURE__ */ new Map();
 var currentUser = null;
-var cachedActiveStatusIds = null;
 function clearBacklogIssueCache() {
   cachedBuckets = null;
   projectStatusCache.clear();
@@ -53,7 +53,6 @@ function clearBacklogIssueCache() {
   projectIssueTypeCache.clear();
   projectUserCache.clear();
   currentUser = null;
-  cachedActiveStatusIds = null;
 }
 async function updateIssueStatusById(issueId, statusId) {
   if (!Number.isFinite(issueId) || issueId <= 0) {
@@ -189,8 +188,18 @@ async function getTodayTomorrowIssues(force = false) {
     const config = await ensureAuthConfig();
     await ensureHostPermission(config);
     const user = await ensureCurrentUser(config);
-    const activeStatusIds = await ensureActiveStatusIds(config);
-    const issues = await fetchAssignedIssues(config, user.id, activeStatusIds);
+    const issues = [];
+    let offset = 0;
+    while (issues.length < MAX_FETCH_COUNT) {
+      const remaining = MAX_FETCH_COUNT - issues.length;
+      const pageSize = Math.min(MAX_PAGE_SIZE, remaining);
+      const page = await fetchAssignedIssues(config, user.id, offset, pageSize);
+      issues.push(...page);
+      if (page.length < pageSize) {
+        break;
+      }
+      offset += page.length;
+    }
     projectIds = Array.from(
       new Set(issues.map((issue) => issue.projectId).filter((id) => typeof id === "number" && id > 0))
     );
@@ -260,53 +269,19 @@ async function ensureCurrentUser(config) {
   currentUser = response;
   return response;
 }
-async function fetchAssignedIssues(config, assigneeId, activeStatusIds) {
+async function fetchAssignedIssues(config, assigneeId, offset, count) {
   const params = {
     "assigneeId[]": [assigneeId],
     sort: "dueDate",
     order: "desc",
-    count: MAX_FETCH_COUNT
+    count: Math.max(1, Math.min(count, MAX_PAGE_SIZE))
   };
-  if (Array.isArray(activeStatusIds) && activeStatusIds.length > 0) {
-    params["statusId[]"] = activeStatusIds;
+  if (offset > 0) {
+    params.offset = offset;
   }
   const response = await backlogFetch(config, "/api/v2/issues", params);
   console.debug("Fetched issues", { count: response.length, projectIds: Array.from(new Set(response.map((issue) => issue.projectId))) });
   return response;
-}
-async function ensureActiveStatusIds(config) {
-  const now = Date.now();
-  if (cachedActiveStatusIds && now - cachedActiveStatusIds.fetchedAt < CACHE_TTL_MS) {
-    return cachedActiveStatusIds.ids;
-  }
-  let projects = [];
-  try {
-    projects = await backlogFetch(config, "/api/v2/projects");
-  } catch (error) {
-    console.warn("Failed to load project list when resolving active statuses", error);
-    if (cachedActiveStatusIds) {
-      return cachedActiveStatusIds.ids;
-    }
-    return [];
-  }
-  const statusIdSet = /* @__PURE__ */ new Set();
-  await Promise.all(
-    projects.map(async (project) => {
-      try {
-        const statuses = await ensureProjectStatuses(config, project.id);
-        statuses.filter((status) => !isCompletedStatus(status.name)).forEach((status) => {
-          if (Number.isFinite(status.id)) {
-            statusIdSet.add(status.id);
-          }
-        });
-      } catch (error) {
-        console.warn(`Failed to resolve statuses for project ${project.id}`, error);
-      }
-    })
-  );
-  const ids = Array.from(statusIdSet);
-  cachedActiveStatusIds = { ids, fetchedAt: now };
-  return ids;
 }
 async function ensureProjectStatuses(config, projectId) {
   const cached = projectStatusCache.get(projectId);
@@ -578,7 +553,7 @@ function isCompletedStatus(statusName) {
     return false;
   }
   const normalized = statusName.trim();
-  return ["\u5B8C\u4E86", "\u30AF\u30ED\u30FC\u30BA", "\u5374\u4E0B", "\u7D42\u4E86"].some((keyword) => normalized.includes(keyword));
+  return normalized.includes("\u5B8C\u4E86");
 }
 function formatDateKey(date) {
   const year = date.getFullYear();
