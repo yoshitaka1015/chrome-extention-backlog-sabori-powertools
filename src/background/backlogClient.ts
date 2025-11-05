@@ -50,6 +50,7 @@ const projectCategoryCache = new Map<number, { data: BacklogCategoryLite[]; fetc
 const projectIssueTypeCache = new Map<number, { data: BacklogIssueTypeLite[]; fetchedAt: number }>();
 const projectUserCache = new Map<number, { data: BacklogUserLite[]; fetchedAt: number }>();
 let currentUser: BacklogUserResponse | null = null;
+let cachedActiveStatusIds: { ids: number[]; fetchedAt: number } | null = null;
 
 export function clearBacklogIssueCache(): void {
   cachedBuckets = null;
@@ -59,6 +60,7 @@ export function clearBacklogIssueCache(): void {
   projectIssueTypeCache.clear();
   projectUserCache.clear();
   currentUser = null;
+  cachedActiveStatusIds = null;
 }
 
 export async function updateIssueStatusById(issueId: number, statusId: number): Promise<void> {
@@ -253,7 +255,8 @@ export async function getTodayTomorrowIssues(force = false): Promise<BacklogIssu
     const config = await ensureAuthConfig();
     await ensureHostPermission(config);
     const user = await ensureCurrentUser(config);
-    const issues = await fetchAssignedIssues(config, user.id);
+    const activeStatusIds = await ensureActiveStatusIds(config);
+    const issues = await fetchAssignedIssues(config, user.id, activeStatusIds);
     projectIds = Array.from(
       new Set(issues.map((issue) => issue.projectId).filter((id): id is number => typeof id === "number" && id > 0))
     );
@@ -336,17 +339,64 @@ async function ensureCurrentUser(config?: BacklogAuthConfig): Promise<BacklogUse
   return response;
 }
 
-async function fetchAssignedIssues(config: BacklogAuthConfig, assigneeId: number): Promise<BacklogIssueResponse[]> {
+async function fetchAssignedIssues(
+  config: BacklogAuthConfig,
+  assigneeId: number,
+  activeStatusIds: number[]
+): Promise<BacklogIssueResponse[]> {
   const params: Record<string, string | number | Array<string | number>> = {
     "assigneeId[]": [assigneeId],
     sort: "dueDate",
-    order: "asc",
+    order: "desc",
     count: MAX_FETCH_COUNT
   };
+  if (Array.isArray(activeStatusIds) && activeStatusIds.length > 0) {
+    params["statusId[]"] = activeStatusIds;
+  }
 
   const response = await backlogFetch<BacklogIssueResponse[]>(config, "/api/v2/issues", params);
   console.debug("Fetched issues", { count: response.length, projectIds: Array.from(new Set(response.map((issue) => issue.projectId))) });
   return response;
+}
+
+async function ensureActiveStatusIds(config: BacklogAuthConfig): Promise<number[]> {
+  const now = Date.now();
+  if (cachedActiveStatusIds && now - cachedActiveStatusIds.fetchedAt < CACHE_TTL_MS) {
+    return cachedActiveStatusIds.ids;
+  }
+
+  let projects: ProjectListResponse = [];
+  try {
+    projects = await backlogFetch<ProjectListResponse>(config, "/api/v2/projects");
+  } catch (error) {
+    console.warn("Failed to load project list when resolving active statuses", error);
+    if (cachedActiveStatusIds) {
+      return cachedActiveStatusIds.ids;
+    }
+    return [];
+  }
+
+  const statusIdSet = new Set<number>();
+  await Promise.all(
+    projects.map(async (project) => {
+      try {
+        const statuses = await ensureProjectStatuses(config, project.id);
+        statuses
+          .filter((status) => !isCompletedStatus(status.name))
+          .forEach((status) => {
+            if (Number.isFinite(status.id)) {
+              statusIdSet.add(status.id);
+            }
+          });
+      } catch (error) {
+        console.warn(`Failed to resolve statuses for project ${project.id}`, error);
+      }
+    })
+  );
+
+  const ids = Array.from(statusIdSet);
+  cachedActiveStatusIds = { ids, fetchedAt: now };
+  return ids;
 }
 
 async function ensureProjectStatuses(config: BacklogAuthConfig, projectId: number): Promise<BacklogStatusLite[]> {

@@ -44,6 +44,7 @@ var projectCategoryCache = /* @__PURE__ */ new Map();
 var projectIssueTypeCache = /* @__PURE__ */ new Map();
 var projectUserCache = /* @__PURE__ */ new Map();
 var currentUser = null;
+var cachedActiveStatusIds = null;
 function clearBacklogIssueCache() {
   cachedBuckets = null;
   projectStatusCache.clear();
@@ -52,6 +53,7 @@ function clearBacklogIssueCache() {
   projectIssueTypeCache.clear();
   projectUserCache.clear();
   currentUser = null;
+  cachedActiveStatusIds = null;
 }
 async function updateIssueStatusById(issueId, statusId) {
   if (!Number.isFinite(issueId) || issueId <= 0) {
@@ -187,7 +189,8 @@ async function getTodayTomorrowIssues(force = false) {
     const config = await ensureAuthConfig();
     await ensureHostPermission(config);
     const user = await ensureCurrentUser(config);
-    const issues = await fetchAssignedIssues(config, user.id);
+    const activeStatusIds = await ensureActiveStatusIds(config);
+    const issues = await fetchAssignedIssues(config, user.id, activeStatusIds);
     projectIds = Array.from(
       new Set(issues.map((issue) => issue.projectId).filter((id) => typeof id === "number" && id > 0))
     );
@@ -257,16 +260,53 @@ async function ensureCurrentUser(config) {
   currentUser = response;
   return response;
 }
-async function fetchAssignedIssues(config, assigneeId) {
+async function fetchAssignedIssues(config, assigneeId, activeStatusIds) {
   const params = {
     "assigneeId[]": [assigneeId],
     sort: "dueDate",
-    order: "asc",
+    order: "desc",
     count: MAX_FETCH_COUNT
   };
+  if (Array.isArray(activeStatusIds) && activeStatusIds.length > 0) {
+    params["statusId[]"] = activeStatusIds;
+  }
   const response = await backlogFetch(config, "/api/v2/issues", params);
   console.debug("Fetched issues", { count: response.length, projectIds: Array.from(new Set(response.map((issue) => issue.projectId))) });
   return response;
+}
+async function ensureActiveStatusIds(config) {
+  const now = Date.now();
+  if (cachedActiveStatusIds && now - cachedActiveStatusIds.fetchedAt < CACHE_TTL_MS) {
+    return cachedActiveStatusIds.ids;
+  }
+  let projects = [];
+  try {
+    projects = await backlogFetch(config, "/api/v2/projects");
+  } catch (error) {
+    console.warn("Failed to load project list when resolving active statuses", error);
+    if (cachedActiveStatusIds) {
+      return cachedActiveStatusIds.ids;
+    }
+    return [];
+  }
+  const statusIdSet = /* @__PURE__ */ new Set();
+  await Promise.all(
+    projects.map(async (project) => {
+      try {
+        const statuses = await ensureProjectStatuses(config, project.id);
+        statuses.filter((status) => !isCompletedStatus(status.name)).forEach((status) => {
+          if (Number.isFinite(status.id)) {
+            statusIdSet.add(status.id);
+          }
+        });
+      } catch (error) {
+        console.warn(`Failed to resolve statuses for project ${project.id}`, error);
+      }
+    })
+  );
+  const ids = Array.from(statusIdSet);
+  cachedActiveStatusIds = { ids, fetchedAt: now };
+  return ids;
 }
 async function ensureProjectStatuses(config, projectId) {
   const cached = projectStatusCache.get(projectId);
