@@ -4,7 +4,10 @@ import {
   backlogApiOrigin,
   clearBacklogAuthConfig,
   getBacklogAuthConfig,
-  saveBacklogAuthConfig
+  saveBacklogAuthConfig,
+  DEFAULT_ISSUE_FETCH_LIMIT,
+  normalizeIssueFetchLimit,
+  normalizeExcludedProjects
 } from "@shared/backlogConfig";
 import {
   CHATGPT_PROMPT_TEMPLATE_KEY,
@@ -21,6 +24,8 @@ const promptForm = document.getElementById("prompt-form") as HTMLFormElement | n
 const promptTextarea = document.getElementById("prompt-template") as HTMLTextAreaElement | null;
 const promptResetButton = document.getElementById("prompt-reset");
 const promptStatusEl = document.getElementById("prompt-status");
+const issueFetchLimitInput = document.getElementById("issue-fetch-limit") as HTMLInputElement | null;
+const excludedProjectsTextarea = document.getElementById("excluded-projects") as HTMLTextAreaElement | null;
 let confirmDialog: HTMLDialogElement | null = null;
 
 async function populateForm() {
@@ -38,6 +43,12 @@ async function populateForm() {
   const showNoDueInput = form.elements.namedItem("showNoDueSection") as HTMLInputElement | null;
   if (showNoDueInput) {
     showNoDueInput.checked = config.showNoDueSection !== false;
+  }
+  if (issueFetchLimitInput) {
+    issueFetchLimitInput.value = String(config.issueFetchLimit ?? DEFAULT_ISSUE_FETCH_LIMIT);
+  }
+  if (excludedProjectsTextarea) {
+    excludedProjectsTextarea.value = (config.excludedProjects ?? []).join("\n");
   }
   setStatus(`保存済み: ${config.spaceDomain}.${config.host}`);
 }
@@ -72,6 +83,13 @@ async function handleSubmit(event: SubmitEvent) {
     showTomorrowSection: formData.get("showTomorrowSection") === "on",
     showNoDueSection: formData.get("showNoDueSection") === "on"
   };
+  if (issueFetchLimitInput) {
+    const limitValue = Number(issueFetchLimitInput.value);
+    config.issueFetchLimit = normalizeIssueFetchLimit(limitValue);
+  }
+  if (excludedProjectsTextarea) {
+    config.excludedProjects = normalizeExcludedProjects(parseExcludedProjectsInput(excludedProjectsTextarea.value));
+  }
 
   if (!config.spaceDomain || !config.apiKey) {
     setStatus("スペースドメインと API キーを入力してください。", true);
@@ -242,4 +260,11 @@ async function removeHostPermission(config: BacklogAuthConfig): Promise<void> {
     return;
   }
   await chrome.permissions.remove(permission);
+}
+
+function parseExcludedProjectsInput(raw: string): string[] {
+  return raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
 }

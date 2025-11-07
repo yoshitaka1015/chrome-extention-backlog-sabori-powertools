@@ -110,7 +110,7 @@
         margin: 0 0 12px;
         font-size: 18px;
       }
-      textarea {
+      .prompt-textarea {
         width: 100%;
         min-height: 320px;
         padding: 12px;
@@ -118,6 +118,16 @@
         border: 1px solid #c7c7d0;
         font-size: 13px;
         font-family: "Fira Code", "Menlo", monospace;
+        resize: vertical;
+        box-sizing: border-box;
+      }
+      .input-textarea {
+        width: 100%;
+        min-height: 120px;
+        padding: 8px;
+        border-radius: 8px;
+        border: 1px solid #c7c7d0;
+        font-size: 14px;
         resize: vertical;
         box-sizing: border-box;
       }
@@ -153,6 +163,20 @@
         <input id="api-key" name="apiKey" type="password" required />
       </div>
       <div class="field">
+        <label for="issue-fetch-limit">課題取得件数上限</label>
+        <input
+          id="issue-fetch-limit"
+          name="issueFetchLimit"
+          type="number"
+          min="50"
+          max="1000"
+          step="10"
+          placeholder="1000"
+          value="1000"
+        />
+        <p class="field__note">50〜1000件の範囲で指定できます。</p>
+      </div>
+      <div class="field">
         <p class="field__note">表示したくない期限日セクションはトグルをオフにしてください。</p>
         <div class="toggle-group">
           <label class="toggle">
@@ -175,6 +199,16 @@
           </label>
         </div>
       </div>
+      <div class="field">
+        <label for="excluded-projects">サイドパネルで非表示にするプロジェクト</label>
+        <textarea
+          id="excluded-projects"
+          name="excludedProjects"
+          class="input-textarea"
+          placeholder="projectKey を1行ずつ入力"
+        ></textarea>
+        <p class="field__note">改行区切りで入力してください。（例）SAMPLE_PROJECT</p>
+      </div>
       <button type="submit">保存</button>
       <button type="button" id="clear-auth" style="background:#0f172a;margin-top:8px;">クリア</button>
     </form>
@@ -184,7 +218,7 @@
       <h2>ChatGPT プロンプト設定</h2>
       <p class="field__note">以下のプレースホルダーを利用できます: {{TODAY}}, {{ISSUE_TYPES}}, {{CATEGORIES}}, {{ASSIGNEES}}, {{INPUT_TEXT}}, {{JSON_SCHEMA}}</p>
       <form id="prompt-form">
-        <textarea id="prompt-template" name="promptTemplate"></textarea>
+        <textarea id="prompt-template" name="promptTemplate" class="prompt-textarea"></textarea>
         <div class="prompt-actions">
           <button type="button" id="prompt-reset" class="btn-secondary">リセット</button>
           <button type="submit">保存</button>

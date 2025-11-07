@@ -1,4 +1,6 @@
 import { CHATGPT_PROMPT_TEMPLATE_KEY, getPromptTemplate } from "@shared/promptTemplate";
+import { BACKLOG_AUTH_KEY } from "@shared/backlogConfig";
+import type { BacklogAuthConfig } from "@shared/backlogConfig";
 
 const CHATGPT_URL = "https://chatgpt.com/?temporary-chat=true";
 const STORAGE_LAST_PROJECT_ID_KEY = "sidepanel:lastProjectId";
@@ -21,6 +23,7 @@ type ProjectDetailBundle = {
 };
 
 let cachedProjectDetails: ProjectDetailBundle[] | null = null;
+let projectDetailsPromise: Promise<ProjectDetailBundle[] | null> | null = null;
 let ticketProjectSelectRef: HTMLSelectElement | null = null;
 let chatgptProjectSelectRef: HTMLSelectElement | null = null;
 let chatgptCopyButtonRef: HTMLButtonElement | null = null;
@@ -28,6 +31,56 @@ let lastProjectId: number | null = null;
 let projectPreferences: Record<string, ProjectPreference> = {};
 let formPreferencesLoaded = false;
 let promptTemplateCache: string | null = null;
+const excludedProjectIds = new Set<number>();
+const excludedProjectKeys = new Set<string>();
+
+async function refreshAuthPreferences(): Promise<void> {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "backlog-auth:get" });
+    const config = response?.config as BacklogAuthConfig | null;
+    updateProjectExclusions(config?.excludedProjects ?? []);
+  } catch (error) {
+    console.warn("Failed to load Backlog auth config", error);
+    updateProjectExclusions([]);
+  }
+}
+
+function updateProjectExclusions(tokens: string[]): void {
+  excludedProjectIds.clear();
+  excludedProjectKeys.clear();
+  tokens.forEach((token) => {
+    if (typeof token !== "string") {
+      return;
+    }
+    const trimmed = token.trim();
+    if (!trimmed) {
+      return;
+    }
+    if (/^\d+$/.test(trimmed)) {
+      excludedProjectIds.add(Number(trimmed));
+      return;
+    }
+    excludedProjectKeys.add(trimmed.toLowerCase());
+  });
+}
+
+function isProjectExcluded(project: { projectId: number; projectKey: string }): boolean {
+  if (excludedProjectIds.has(project.projectId)) {
+    return true;
+  }
+  const key = project.projectKey?.toLowerCase?.();
+  if (key && excludedProjectKeys.has(key)) {
+    return true;
+  }
+  return false;
+}
+
+function filterProjects<T extends { projectId: number; projectKey: string }>(projects: T[]): T[] {
+  if (!excludedProjectIds.size && !excludedProjectKeys.size) {
+    return projects;
+  }
+  return projects.filter((project) => !isProjectExcluded(project));
+}
 
 async function ensureFormPreferencesLoaded(): Promise<void> {
   if (formPreferencesLoaded) {
@@ -116,11 +169,18 @@ async function ensurePromptTemplateLoaded(): Promise<string> {
   return template;
 }
 
-function init(): void {
+async function init(): Promise<void> {
   const root = document.getElementById("sidepanel-root");
   if (!root) {
     return;
   }
+
+  cachedProjectDetails = null;
+  projectDetailsPromise = null;
+  await refreshAuthPreferences().catch((error) => {
+    console.warn("Failed to load Backlog preferences", error);
+  });
+  void loadProjectDetails(true);
 
   root.append(createChatGPTCard(), createTicketCard());
 }
@@ -498,29 +558,51 @@ function createChatGPTCard(): HTMLElement {
 }
 
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", init, { once: true });
+  document.addEventListener(
+    "DOMContentLoaded",
+    () => {
+      void init();
+    },
+    { once: true }
+  );
 } else {
-  init();
+  void init();
 }
 
 async function loadProjectDetails(force = false): Promise<ProjectDetailBundle[] | null> {
   if (!force && cachedProjectDetails) {
     return cachedProjectDetails;
   }
-  try {
-    const response = await chrome.runtime.sendMessage({ type: "backlog:projects:details" });
-    const data = response?.data as ProjectDetailBundle[] | undefined;
-    if (Array.isArray(data)) {
-      cachedProjectDetails = data;
-      return data;
-    }
-    if (response?.error) {
-      console.warn("Failed to load project details:", response.error);
-    }
-  } catch (error) {
-    console.warn("Failed to load project details", error);
+  if (!force && projectDetailsPromise) {
+    return projectDetailsPromise;
   }
-  return null;
+
+  const request = (async () => {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "backlog:projects:details" });
+      const data = response?.data as ProjectDetailBundle[] | undefined;
+      if (Array.isArray(data)) {
+        cachedProjectDetails = data;
+        return data;
+      }
+      if (response?.error) {
+        console.warn("Failed to load project details:", response.error);
+      }
+    } catch (error) {
+      console.warn("Failed to load project details", error);
+    } finally {
+      projectDetailsPromise = null;
+    }
+    return null;
+  })();
+
+  if (!force) {
+    projectDetailsPromise = request;
+  } else {
+    projectDetailsPromise = request;
+  }
+
+  return request;
 }
 
 function populateProjectSelect(
@@ -531,7 +613,8 @@ function populateProjectSelect(
   details: ProjectDetailBundle[]
 ): void {
   projectSelect.innerHTML = "";
-  const sortedProjects = details.slice().sort((a, b) => a.name.localeCompare(b.name, "ja"));
+  const visibleProjects = filterProjects(details);
+  const sortedProjects = visibleProjects.slice().sort((a, b) => a.name.localeCompare(b.name, "ja"));
 
   if (!sortedProjects.length) {
     const emptyOption = document.createElement("option");
@@ -573,7 +656,8 @@ function populateChatGptProjectSelect(
   }
   const currentValue = select.value;
   select.innerHTML = "";
-  const sortedProjects = details.slice().sort((a, b) => a.name.localeCompare(b.name, "ja"));
+  const visibleProjects = filterProjects(details);
+  const sortedProjects = visibleProjects.slice().sort((a, b) => a.name.localeCompare(b.name, "ja"));
 
   if (!sortedProjects.length) {
     const emptyOption = document.createElement("option");
@@ -930,6 +1014,9 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === "local" && changes[CHATGPT_PROMPT_TEMPLATE_KEY]) {
     promptTemplateCache = null;
     resetPromptCache();
+  }
+  if (areaName === "local" && changes[BACKLOG_AUTH_KEY]) {
+    void refreshAuthPreferences();
   }
 });
 

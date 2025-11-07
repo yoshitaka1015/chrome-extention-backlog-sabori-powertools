@@ -40,6 +40,9 @@ function storageRemove(keys) {
 // src/shared/backlogConfig.ts
 var BACKLOG_AUTH_KEY = "backlogAuth";
 var BACKLOG_ISSUES_REVISION_KEY = "backlogManagerIssuesRevision";
+var ISSUE_FETCH_LIMIT_MIN = 50;
+var ISSUE_FETCH_LIMIT_MAX = 1e3;
+var DEFAULT_ISSUE_FETCH_LIMIT = 1e3;
 async function getBacklogAuthConfig() {
   const result = await storageGet([BACKLOG_AUTH_KEY]);
   const config = result[BACKLOG_AUTH_KEY];
@@ -52,7 +55,33 @@ async function getBacklogAuthConfig() {
   if (config.showTomorrowSection === void 0) {
     config.showTomorrowSection = true;
   }
+  config.issueFetchLimit = normalizeIssueFetchLimit(config.issueFetchLimit);
+  config.excludedProjects = normalizeExcludedProjects(config.excludedProjects);
   return config;
+}
+function normalizeIssueFetchLimit(value) {
+  if (!Number.isFinite(value ?? NaN)) {
+    return DEFAULT_ISSUE_FETCH_LIMIT;
+  }
+  const numericValue = Number(value);
+  return Math.min(ISSUE_FETCH_LIMIT_MAX, Math.max(ISSUE_FETCH_LIMIT_MIN, Math.floor(numericValue)));
+}
+function normalizeExcludedProjects(raw) {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const seen = /* @__PURE__ */ new Set();
+  raw.forEach((item) => {
+    if (typeof item !== "string") {
+      return;
+    }
+    const trimmed = item.trim();
+    if (!trimmed) {
+      return;
+    }
+    seen.add(trimmed);
+  });
+  return Array.from(seen);
 }
 
 // src/content/topbar/index.ts

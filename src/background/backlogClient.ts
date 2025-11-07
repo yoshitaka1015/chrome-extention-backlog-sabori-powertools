@@ -1,4 +1,10 @@
-import { backlogBaseUrl, getBacklogAuthConfig, BacklogAuthConfig, BACKLOG_ISSUES_REVISION_KEY } from "@shared/backlogConfig";
+import {
+  backlogBaseUrl,
+  getBacklogAuthConfig,
+  BacklogAuthConfig,
+  BACKLOG_ISSUES_REVISION_KEY,
+  normalizeIssueFetchLimit
+} from "@shared/backlogConfig";
 import type {
   BacklogIssueBuckets,
   BacklogIssueLite,
@@ -41,7 +47,6 @@ type BacklogUserResponse = {
 };
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
-const MAX_FETCH_COUNT = 1000;
 const MAX_PAGE_SIZE = 100;
 
 let cachedBuckets: { data: BacklogIssueBuckets; fetchedAt: number } | null = null;
@@ -254,10 +259,11 @@ export async function getTodayTomorrowIssues(force = false): Promise<BacklogIssu
     const config = await ensureAuthConfig();
     await ensureHostPermission(config);
     const user = await ensureCurrentUser(config);
+    const issueFetchLimit = normalizeIssueFetchLimit(config.issueFetchLimit);
     const issues: BacklogIssueResponse[] = [];
     let offset = 0;
-    while (issues.length < MAX_FETCH_COUNT) {
-      const remaining = MAX_FETCH_COUNT - issues.length;
+    while (issues.length < issueFetchLimit) {
+      const remaining = issueFetchLimit - issues.length;
       const pageSize = Math.min(MAX_PAGE_SIZE, remaining);
       const page = await fetchAssignedIssues(config, user.id, offset, pageSize);
       issues.push(...page);

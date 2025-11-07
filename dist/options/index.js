@@ -39,6 +39,9 @@ function storageRemove(keys) {
 
 // src/shared/backlogConfig.ts
 var BACKLOG_AUTH_KEY = "backlogAuth";
+var ISSUE_FETCH_LIMIT_MIN = 50;
+var ISSUE_FETCH_LIMIT_MAX = 1e3;
+var DEFAULT_ISSUE_FETCH_LIMIT = 1e3;
 async function getBacklogAuthConfig() {
   const result = await storageGet([BACKLOG_AUTH_KEY]);
   const config = result[BACKLOG_AUTH_KEY];
@@ -51,6 +54,8 @@ async function getBacklogAuthConfig() {
   if (config.showTomorrowSection === void 0) {
     config.showTomorrowSection = true;
   }
+  config.issueFetchLimit = normalizeIssueFetchLimit(config.issueFetchLimit);
+  config.excludedProjects = normalizeExcludedProjects(config.excludedProjects);
   return config;
 }
 async function saveBacklogAuthConfig(config) {
@@ -64,6 +69,30 @@ function backlogBaseUrl(config) {
 }
 function backlogApiOrigin(config) {
   return `${backlogBaseUrl(config)}/`;
+}
+function normalizeIssueFetchLimit(value) {
+  if (!Number.isFinite(value ?? NaN)) {
+    return DEFAULT_ISSUE_FETCH_LIMIT;
+  }
+  const numericValue = Number(value);
+  return Math.min(ISSUE_FETCH_LIMIT_MAX, Math.max(ISSUE_FETCH_LIMIT_MIN, Math.floor(numericValue)));
+}
+function normalizeExcludedProjects(raw) {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const seen = /* @__PURE__ */ new Set();
+  raw.forEach((item) => {
+    if (typeof item !== "string") {
+      return;
+    }
+    const trimmed = item.trim();
+    if (!trimmed) {
+      return;
+    }
+    seen.add(trimmed);
+  });
+  return Array.from(seen);
 }
 
 // src/shared/promptTemplate.ts
@@ -111,6 +140,8 @@ var promptForm = document.getElementById("prompt-form");
 var promptTextarea = document.getElementById("prompt-template");
 var promptResetButton = document.getElementById("prompt-reset");
 var promptStatusEl = document.getElementById("prompt-status");
+var issueFetchLimitInput = document.getElementById("issue-fetch-limit");
+var excludedProjectsTextarea = document.getElementById("excluded-projects");
 var confirmDialog = null;
 async function populateForm() {
   const config = await getBacklogAuthConfig();
@@ -127,6 +158,12 @@ async function populateForm() {
   const showNoDueInput = form.elements.namedItem("showNoDueSection");
   if (showNoDueInput) {
     showNoDueInput.checked = config.showNoDueSection !== false;
+  }
+  if (issueFetchLimitInput) {
+    issueFetchLimitInput.value = String(config.issueFetchLimit ?? DEFAULT_ISSUE_FETCH_LIMIT);
+  }
+  if (excludedProjectsTextarea) {
+    excludedProjectsTextarea.value = (config.excludedProjects ?? []).join("\n");
   }
   setStatus(`\u4FDD\u5B58\u6E08\u307F: ${config.spaceDomain}.${config.host}`);
 }
@@ -157,6 +194,13 @@ async function handleSubmit(event) {
     showTomorrowSection: formData.get("showTomorrowSection") === "on",
     showNoDueSection: formData.get("showNoDueSection") === "on"
   };
+  if (issueFetchLimitInput) {
+    const limitValue = Number(issueFetchLimitInput.value);
+    config.issueFetchLimit = normalizeIssueFetchLimit(limitValue);
+  }
+  if (excludedProjectsTextarea) {
+    config.excludedProjects = normalizeExcludedProjects(parseExcludedProjectsInput(excludedProjectsTextarea.value));
+  }
   if (!config.spaceDomain || !config.apiKey) {
     setStatus("\u30B9\u30DA\u30FC\u30B9\u30C9\u30E1\u30A4\u30F3\u3068 API \u30AD\u30FC\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002", true);
     return;
@@ -305,5 +349,8 @@ async function removeHostPermission(config) {
     return;
   }
   await chrome.permissions.remove(permission);
+}
+function parseExcludedProjectsInput(raw) {
+  return raw.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
 }
 //# sourceMappingURL=index.js.map

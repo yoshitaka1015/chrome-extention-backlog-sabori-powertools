@@ -16,6 +16,9 @@ function storageGet(keys) {
 // src/shared/backlogConfig.ts
 var BACKLOG_AUTH_KEY = "backlogAuth";
 var BACKLOG_ISSUES_REVISION_KEY = "backlogManagerIssuesRevision";
+var ISSUE_FETCH_LIMIT_MIN = 50;
+var ISSUE_FETCH_LIMIT_MAX = 1e3;
+var DEFAULT_ISSUE_FETCH_LIMIT = 1e3;
 async function getBacklogAuthConfig() {
   const result = await storageGet([BACKLOG_AUTH_KEY]);
   const config = result[BACKLOG_AUTH_KEY];
@@ -28,15 +31,40 @@ async function getBacklogAuthConfig() {
   if (config.showTomorrowSection === void 0) {
     config.showTomorrowSection = true;
   }
+  config.issueFetchLimit = normalizeIssueFetchLimit(config.issueFetchLimit);
+  config.excludedProjects = normalizeExcludedProjects(config.excludedProjects);
   return config;
 }
 function backlogBaseUrl(config) {
   return `https://${config.spaceDomain}.${config.host}`;
 }
+function normalizeIssueFetchLimit(value) {
+  if (!Number.isFinite(value ?? NaN)) {
+    return DEFAULT_ISSUE_FETCH_LIMIT;
+  }
+  const numericValue = Number(value);
+  return Math.min(ISSUE_FETCH_LIMIT_MAX, Math.max(ISSUE_FETCH_LIMIT_MIN, Math.floor(numericValue)));
+}
+function normalizeExcludedProjects(raw) {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const seen = /* @__PURE__ */ new Set();
+  raw.forEach((item) => {
+    if (typeof item !== "string") {
+      return;
+    }
+    const trimmed = item.trim();
+    if (!trimmed) {
+      return;
+    }
+    seen.add(trimmed);
+  });
+  return Array.from(seen);
+}
 
 // src/background/backlogClient.ts
 var CACHE_TTL_MS = 10 * 60 * 1e3;
-var MAX_FETCH_COUNT = 1e3;
 var MAX_PAGE_SIZE = 100;
 var cachedBuckets = null;
 var projectStatusCache = /* @__PURE__ */ new Map();
@@ -188,10 +216,11 @@ async function getTodayTomorrowIssues(force = false) {
     const config = await ensureAuthConfig();
     await ensureHostPermission(config);
     const user = await ensureCurrentUser(config);
+    const issueFetchLimit = normalizeIssueFetchLimit(config.issueFetchLimit);
     const issues = [];
     let offset = 0;
-    while (issues.length < MAX_FETCH_COUNT) {
-      const remaining = MAX_FETCH_COUNT - issues.length;
+    while (issues.length < issueFetchLimit) {
+      const remaining = issueFetchLimit - issues.length;
       const pageSize = Math.min(MAX_PAGE_SIZE, remaining);
       const page = await fetchAssignedIssues(config, user.id, offset, pageSize);
       issues.push(...page);
