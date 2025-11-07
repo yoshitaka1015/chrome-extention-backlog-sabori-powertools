@@ -285,6 +285,13 @@ function createTicketCard(): HTMLElement {
     if (chatgptProjectSelectRef) {
       populateChatGptProjectSelect(chatgptProjectSelectRef, list);
     }
+    populateProjectMetadataForSelection(
+      Number(projectSelect.value),
+      issueTypeSelect,
+      categorySelect,
+      assigneeSelect,
+      list
+    );
 
     await ensureFormPreferencesLoaded();
     const storedProjectId = lastProjectId;
@@ -293,9 +300,22 @@ function createTicketCard(): HTMLElement {
         projectSelect.value = String(storedProjectId);
         projectSelect.dispatchEvent(new Event("change", { bubbles: true, cancelable: false }));
       } else {
+        populateProjectMetadataForSelection(
+          storedProjectId,
+          issueTypeSelect,
+          categorySelect,
+          assigneeSelect,
+          list
+        );
         const preference = getStoredPreference(storedProjectId);
         applyStoredPreferenceToSelectors(issueTypeSelect, categorySelect, preference);
         void persistFormPreferences(storedProjectId, preference ?? {});
+      }
+    } else {
+      const currentProjectId = Number(projectSelect.value);
+      if (currentProjectId) {
+        const preference = getStoredPreference(currentProjectId);
+        applyStoredPreferenceToSelectors(issueTypeSelect, categorySelect, preference);
       }
     }
   });
@@ -303,10 +323,7 @@ function createTicketCard(): HTMLElement {
   projectSelect.addEventListener("change", () => {
     const projectId = Number(projectSelect.value);
     const details = cachedProjectDetails ?? [];
-    const project = details.find((item) => item.projectId === projectId);
-    populateIssueTypeSelect(issueTypeSelect, project?.issueTypes ?? []);
-    populateCategorySelect(categorySelect, project?.categories ?? []);
-    populateAssigneeSelect(assigneeSelect, project?.users ?? [], project?.currentUserId ?? null);
+    populateProjectMetadataForSelection(projectId, issueTypeSelect, categorySelect, assigneeSelect, details);
     syncChatGptProjectSelection(projectId);
     resetPromptCache();
     if (projectId) {
@@ -764,6 +781,32 @@ function populateAssigneeSelect(
 
   assigneeSelect.disabled = false;
   assigneeSelect.value = selectedValue ?? String(sorted[0]?.id ?? "");
+}
+
+function populateProjectMetadataForSelection(
+  projectId: number,
+  issueTypeSelect: HTMLSelectElement,
+  categorySelect: HTMLSelectElement,
+  assigneeSelect: HTMLSelectElement,
+  details?: ProjectDetailBundle[] | null
+): void {
+  const list = details ?? cachedProjectDetails ?? [];
+  if (!projectId || !list.length) {
+    populateIssueTypeSelect(issueTypeSelect, []);
+    populateCategorySelect(categorySelect, []);
+    populateAssigneeSelect(assigneeSelect, [], null);
+    return;
+  }
+  const project = list.find((item) => item.projectId === projectId);
+  if (!project) {
+    populateIssueTypeSelect(issueTypeSelect, []);
+    populateCategorySelect(categorySelect, []);
+    populateAssigneeSelect(assigneeSelect, [], null);
+    return;
+  }
+  populateIssueTypeSelect(issueTypeSelect, project.issueTypes ?? []);
+  populateCategorySelect(categorySelect, project.categories ?? []);
+  populateAssigneeSelect(assigneeSelect, project.users ?? [], project.currentUserId ?? null);
 }
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
