@@ -1141,7 +1141,7 @@ function renderTopBar(
     togglePanelButton.dataset.loading = "true";
     togglePanelButton.disabled = true;
     void chrome.runtime
-      .sendMessage({ type: "backlog:projects:details" })
+      .sendMessage({ type: "backlog:projects:details", force: true })
       .catch((error) => console.warn("Failed to prefetch project details:", error));
     try {
       await toggleSidePanel();

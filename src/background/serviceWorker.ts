@@ -79,7 +79,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message?.type === "backlog:projects:details") {
-    getAllProjectDetails()
+    getAllProjectDetails(Boolean(message?.force))
       .then((data) => sendResponse({ data }))
       .catch((error) => sendResponse({ error: error?.message ?? String(error) }));
     return true;

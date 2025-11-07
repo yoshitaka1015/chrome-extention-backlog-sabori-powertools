@@ -578,8 +578,8 @@ async function loadProjectDetails(force = false): Promise<ProjectDetailBundle[] 
   }
 
   const request = (async () => {
-    try {
-      const response = await chrome.runtime.sendMessage({ type: "backlog:projects:details" });
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "backlog:projects:details", force });
       const data = response?.data as ProjectDetailBundle[] | undefined;
       if (Array.isArray(data)) {
         cachedProjectDetails = data;

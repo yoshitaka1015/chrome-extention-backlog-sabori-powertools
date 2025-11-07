@@ -127,12 +127,16 @@ type CreatedIssueResponse = {
   summary: string;
 };
 
-export async function getAllProjectDetails(): Promise<ProjectDetails[]> {
+export async function getAllProjectDetails(force = false): Promise<ProjectDetails[]> {
   const config = await ensureAuthConfig();
   await ensureHostPermission(config);
 
   const current = await ensureCurrentUser(config).catch(() => null);
   const currentUserId = current?.id ?? null;
+
+  if (force) {
+    clearProjectMetadataCaches();
+  }
 
   const projects = await backlogFetch<ProjectListResponse>(config, "/api/v2/projects");
   const details: ProjectDetails[] = [];
@@ -158,6 +162,14 @@ export async function getAllProjectDetails(): Promise<ProjectDetails[]> {
   }
 
   return details;
+}
+
+function clearProjectMetadataCaches(): void {
+  projectStatusCache.clear();
+  projectInfoCache.clear();
+  projectCategoryCache.clear();
+  projectIssueTypeCache.clear();
+  projectUserCache.clear();
 }
 
 export async function createIssue(params: CreateIssueParams): Promise<CreatedIssueResponse> {

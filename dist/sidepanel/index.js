@@ -543,7 +543,7 @@ async function loadProjectDetails(force = false) {
   }
   const request = (async () => {
     try {
-      const response = await chrome.runtime.sendMessage({ type: "backlog:projects:details" });
+      const response = await chrome.runtime.sendMessage({ type: "backlog:projects:details", force });
       const data = response?.data;
       if (Array.isArray(data)) {
         cachedProjectDetails = data;

@@ -104,11 +104,14 @@ async function getProjectStatusesById(projectId) {
   const statuses = await ensureProjectStatuses(config, projectId);
   return { projectId, statuses };
 }
-async function getAllProjectDetails() {
+async function getAllProjectDetails(force = false) {
   const config = await ensureAuthConfig();
   await ensureHostPermission(config);
   const current = await ensureCurrentUser(config).catch(() => null);
   const currentUserId = current?.id ?? null;
+  if (force) {
+    clearProjectMetadataCaches();
+  }
   const projects = await backlogFetch(config, "/api/v2/projects");
   const details = [];
   for (const project of projects) {
@@ -130,6 +133,13 @@ async function getAllProjectDetails() {
     });
   }
   return details;
+}
+function clearProjectMetadataCaches() {
+  projectStatusCache.clear();
+  projectInfoCache.clear();
+  projectCategoryCache.clear();
+  projectIssueTypeCache.clear();
+  projectUserCache.clear();
 }
 async function createIssue(params) {
   if (!Number.isFinite(params.projectId) || params.projectId <= 0) {
@@ -672,7 +682,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message?.type === "backlog:projects:details") {
-    getAllProjectDetails().then((data) => sendResponse({ data })).catch((error) => sendResponse({ error: error?.message ?? String(error) }));
+    getAllProjectDetails(Boolean(message?.force)).then((data) => sendResponse({ data })).catch((error) => sendResponse({ error: error?.message ?? String(error) }));
     return true;
   }
   if (message?.type === "backlog:issue:create") {
