@@ -121,10 +121,24 @@ async function refreshAuthPreferences(): Promise<void> {
     const config = response?.config as BacklogAuthConfig | null;
     updateProjectExclusions(config?.excludedProjects ?? []);
     setActiveLlmProvider(config?.llmProvider ?? DEFAULT_LLM_PROVIDER);
+    autoImportDelaySeconds = normalizeAutoDelay(
+      config?.autoImportDelaySeconds,
+      AUTO_IMPORT_DELAY_MIN,
+      AUTO_IMPORT_DELAY_MAX,
+      DEFAULT_AUTO_IMPORT_DELAY_SECONDS
+    );
+    autoCreateDelaySeconds = normalizeAutoDelay(
+      config?.autoCreateDelaySeconds,
+      AUTO_CREATE_DELAY_MIN,
+      AUTO_CREATE_DELAY_MAX,
+      DEFAULT_AUTO_CREATE_DELAY_SECONDS
+    );
   } catch (error) {
     console.warn("Failed to load Backlog auth config", error);
     updateProjectExclusions([]);
     setActiveLlmProvider(DEFAULT_LLM_PROVIDER);
+    autoImportDelaySeconds = DEFAULT_AUTO_IMPORT_DELAY_SECONDS;
+    autoCreateDelaySeconds = DEFAULT_AUTO_CREATE_DELAY_SECONDS;
   }
 }
 
@@ -514,11 +528,11 @@ function createTicketCard(): HTMLElement {
 
   async function startAutoCreateCountdown(): Promise<void> {
     autoProcessPhase = "wait-create";
-    autoImportRemainingSeconds = 15;
+    autoImportRemainingSeconds = autoCreateDelaySeconds;
     autoImportButton.dataset.timer = "auto-create";
     autoImportButton.disabled = false;
-    autoImportButton.textContent = `チケット作成まで 15秒`;
-    showFeedback("success", "15秒後に自動でチケット作成を実行します。");
+    autoImportButton.textContent = `チケット作成まで ${autoImportRemainingSeconds}秒`;
+    showFeedback("success", `${autoCreateDelaySeconds}秒後に自動でチケット作成を実行します。`);
     if (autoImportIntervalId) {
       window.clearInterval(autoImportIntervalId);
     }
@@ -549,7 +563,7 @@ function createTicketCard(): HTMLElement {
       autoImportButton.disabled = true;
       await submitTicketCreation({ auto: true, tabIdToClose: pendingAutoCloseTabId });
       resetAutoImportTimer();
-    }, 15000);
+    }, autoCreateDelaySeconds * 1000);
   }
 
   autoImportButton.addEventListener("click", () => {
@@ -561,11 +575,14 @@ function createTicketCard(): HTMLElement {
       showFeedback("error", "先にプロジェクトを選択してください。");
       return;
     }
-    autoImportRemainingSeconds = 60;
+    autoImportRemainingSeconds = autoImportDelaySeconds;
     autoProcessPhase = "wait-import";
     autoImportButton.dataset.timer = "active";
-    autoImportButton.textContent = `自動取り込みまで 60秒`;
-    showFeedback("success", "1分後に AI の JSON を取り込み、自動でチケット作成を試みます。");
+    autoImportButton.textContent = `自動取り込みまで ${autoImportRemainingSeconds}秒`;
+    showFeedback(
+      "success",
+      `${autoImportDelaySeconds}秒後に AI の JSON を取り込み、その後チケット作成まで自動で進めます。`
+    );
     autoImportIntervalId = window.setInterval(() => {
       autoImportRemainingSeconds -= 1;
       if (autoImportRemainingSeconds <= 0) {
@@ -588,7 +605,7 @@ function createTicketCard(): HTMLElement {
       autoImportButton.textContent = "取り込み中…";
       autoImportButton.disabled = true;
       await runAutoImportWorkflow(true);
-    }, 60000);
+    }, autoImportDelaySeconds * 1000);
   });
 
   importButton.addEventListener("click", async () => {

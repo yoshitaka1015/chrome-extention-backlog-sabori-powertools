@@ -217,6 +217,32 @@
         ></textarea>
         <p class="field__note">改行区切りで入力してください。（例）SAMPLE_PROJECT</p>
       </div>
+      <div class="field">
+        <label for="auto-import-delay">AI JSON 取り込みまでの待機秒数</label>
+        <input
+          id="auto-import-delay"
+          name="autoImportDelaySeconds"
+          type="number"
+          min="10"
+          max="600"
+          step="5"
+          value="60"
+        />
+        <p class="field__note">AIからJSONを自動取り込みするまでの待機時間（10〜600秒）。</p>
+      </div>
+      <div class="field">
+        <label for="auto-create-delay">JSON取り込み後のチケット作成待機秒数</label>
+        <input
+          id="auto-create-delay"
+          name="autoCreateDelaySeconds"
+          type="number"
+          min="5"
+          max="300"
+          step="5"
+          value="15"
+        />
+        <p class="field__note">JSON取り込み完了からチケット作成までの待機時間（5〜300秒）。</p>
+      </div>
       <button type="submit">保存</button>
       <button type="button" id="clear-auth" style="background:#0f172a;margin-top:8px;">クリア</button>
     </form>

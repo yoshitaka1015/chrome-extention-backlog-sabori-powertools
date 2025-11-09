@@ -129,10 +129,24 @@ async function refreshAuthPreferences() {
     const config = response?.config;
     updateProjectExclusions(config?.excludedProjects ?? []);
     setActiveLlmProvider(config?.llmProvider ?? DEFAULT_LLM_PROVIDER);
+    autoImportDelaySeconds = normalizeAutoDelay(
+      config?.autoImportDelaySeconds,
+      AUTO_IMPORT_DELAY_MIN,
+      AUTO_IMPORT_DELAY_MAX,
+      DEFAULT_AUTO_IMPORT_DELAY_SECONDS
+    );
+    autoCreateDelaySeconds = normalizeAutoDelay(
+      config?.autoCreateDelaySeconds,
+      AUTO_CREATE_DELAY_MIN,
+      AUTO_CREATE_DELAY_MAX,
+      DEFAULT_AUTO_CREATE_DELAY_SECONDS
+    );
   } catch (error) {
     console.warn("Failed to load Backlog auth config", error);
     updateProjectExclusions([]);
     setActiveLlmProvider(DEFAULT_LLM_PROVIDER);
+    autoImportDelaySeconds = DEFAULT_AUTO_IMPORT_DELAY_SECONDS;
+    autoCreateDelaySeconds = DEFAULT_AUTO_CREATE_DELAY_SECONDS;
   }
 }
 function updateProjectExclusions(tokens) {
@@ -479,11 +493,11 @@ function createTicketCard() {
   }
   async function startAutoCreateCountdown() {
     autoProcessPhase = "wait-create";
-    autoImportRemainingSeconds = 15;
+    autoImportRemainingSeconds = autoCreateDelaySeconds;
     autoImportButton.dataset.timer = "auto-create";
     autoImportButton.disabled = false;
-    autoImportButton.textContent = `\u30C1\u30B1\u30C3\u30C8\u4F5C\u6210\u307E\u3067 15\u79D2`;
-    showFeedback("success", "15\u79D2\u5F8C\u306B\u81EA\u52D5\u3067\u30C1\u30B1\u30C3\u30C8\u4F5C\u6210\u3092\u5B9F\u884C\u3057\u307E\u3059\u3002");
+    autoImportButton.textContent = `\u30C1\u30B1\u30C3\u30C8\u4F5C\u6210\u307E\u3067 ${autoImportRemainingSeconds}\u79D2`;
+    showFeedback("success", `${autoCreateDelaySeconds}\u79D2\u5F8C\u306B\u81EA\u52D5\u3067\u30C1\u30B1\u30C3\u30C8\u4F5C\u6210\u3092\u5B9F\u884C\u3057\u307E\u3059\u3002`);
     if (autoImportIntervalId) {
       window.clearInterval(autoImportIntervalId);
     }
@@ -514,7 +528,7 @@ function createTicketCard() {
       autoImportButton.disabled = true;
       await submitTicketCreation({ auto: true, tabIdToClose: pendingAutoCloseTabId });
       resetAutoImportTimer();
-    }, 15e3);
+    }, autoCreateDelaySeconds * 1e3);
   }
   autoImportButton.addEventListener("click", () => {
     if (autoImportTimeoutId) {
@@ -525,11 +539,14 @@ function createTicketCard() {
       showFeedback("error", "\u5148\u306B\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       return;
     }
-    autoImportRemainingSeconds = 60;
+    autoImportRemainingSeconds = autoImportDelaySeconds;
     autoProcessPhase = "wait-import";
     autoImportButton.dataset.timer = "active";
-    autoImportButton.textContent = `\u81EA\u52D5\u53D6\u308A\u8FBC\u307F\u307E\u3067 60\u79D2`;
-    showFeedback("success", "1\u5206\u5F8C\u306B AI \u306E JSON \u3092\u53D6\u308A\u8FBC\u307F\u3001\u81EA\u52D5\u3067\u30C1\u30B1\u30C3\u30C8\u4F5C\u6210\u3092\u8A66\u307F\u307E\u3059\u3002");
+    autoImportButton.textContent = `\u81EA\u52D5\u53D6\u308A\u8FBC\u307F\u307E\u3067 ${autoImportRemainingSeconds}\u79D2`;
+    showFeedback(
+      "success",
+      `${autoImportDelaySeconds}\u79D2\u5F8C\u306B AI \u306E JSON \u3092\u53D6\u308A\u8FBC\u307F\u3001\u305D\u306E\u5F8C\u30C1\u30B1\u30C3\u30C8\u4F5C\u6210\u307E\u3067\u81EA\u52D5\u3067\u9032\u3081\u307E\u3059\u3002`
+    );
     autoImportIntervalId = window.setInterval(() => {
       autoImportRemainingSeconds -= 1;
       if (autoImportRemainingSeconds <= 0) {
@@ -552,7 +569,7 @@ function createTicketCard() {
       autoImportButton.textContent = "\u53D6\u308A\u8FBC\u307F\u4E2D\u2026";
       autoImportButton.disabled = true;
       await runAutoImportWorkflow(true);
-    }, 6e4);
+    }, autoImportDelaySeconds * 1e3);
   });
   importButton.addEventListener("click", async () => {
     if (autoImportTimeoutId) {

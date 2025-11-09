@@ -43,6 +43,12 @@ var ISSUE_FETCH_LIMIT_MIN = 50;
 var ISSUE_FETCH_LIMIT_MAX = 1e3;
 var DEFAULT_ISSUE_FETCH_LIMIT = 1e3;
 var DEFAULT_LLM_PROVIDER = "chatgpt";
+var AUTO_IMPORT_DELAY_MIN = 10;
+var AUTO_IMPORT_DELAY_MAX = 600;
+var DEFAULT_AUTO_IMPORT_DELAY_SECONDS = 60;
+var AUTO_CREATE_DELAY_MIN = 5;
+var AUTO_CREATE_DELAY_MAX = 300;
+var DEFAULT_AUTO_CREATE_DELAY_SECONDS = 15;
 async function getBacklogAuthConfig() {
   const result = await storageGet([BACKLOG_AUTH_KEY]);
   const config = result[BACKLOG_AUTH_KEY];
@@ -58,6 +64,18 @@ async function getBacklogAuthConfig() {
   config.issueFetchLimit = normalizeIssueFetchLimit(config.issueFetchLimit);
   config.excludedProjects = normalizeExcludedProjects(config.excludedProjects);
   config.llmProvider = normalizeLlmProvider(config.llmProvider);
+  config.autoImportDelaySeconds = normalizeAutoDelay(
+    config.autoImportDelaySeconds,
+    AUTO_IMPORT_DELAY_MIN,
+    AUTO_IMPORT_DELAY_MAX,
+    DEFAULT_AUTO_IMPORT_DELAY_SECONDS
+  );
+  config.autoCreateDelaySeconds = normalizeAutoDelay(
+    config.autoCreateDelaySeconds,
+    AUTO_CREATE_DELAY_MIN,
+    AUTO_CREATE_DELAY_MAX,
+    DEFAULT_AUTO_CREATE_DELAY_SECONDS
+  );
   return config;
 }
 async function saveBacklogAuthConfig(config) {
@@ -101,6 +119,14 @@ function normalizeLlmProvider(value) {
     return "gemini";
   }
   return DEFAULT_LLM_PROVIDER;
+}
+function normalizeAutoDelay(value, min, max, fallback) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  const clamped = Math.floor(Math.max(min, Math.min(max, numeric)));
+  return clamped;
 }
 
 // src/shared/promptTemplate.ts
@@ -151,6 +177,8 @@ var promptStatusEl = document.getElementById("prompt-status");
 var issueFetchLimitInput = document.getElementById("issue-fetch-limit");
 var excludedProjectsTextarea = document.getElementById("excluded-projects");
 var llmProviderSelect = document.getElementById("llm-provider");
+var autoImportDelayInput = document.getElementById("auto-import-delay");
+var autoCreateDelayInput = document.getElementById("auto-create-delay");
 var confirmDialog = null;
 async function populateForm() {
   const config = await getBacklogAuthConfig();
@@ -176,6 +204,12 @@ async function populateForm() {
   }
   if (llmProviderSelect) {
     llmProviderSelect.value = config.llmProvider ?? DEFAULT_LLM_PROVIDER;
+  }
+  if (autoImportDelayInput) {
+    autoImportDelayInput.value = String(config.autoImportDelaySeconds ?? DEFAULT_AUTO_IMPORT_DELAY_SECONDS);
+  }
+  if (autoCreateDelayInput) {
+    autoCreateDelayInput.value = String(config.autoCreateDelaySeconds ?? DEFAULT_AUTO_CREATE_DELAY_SECONDS);
   }
   setStatus(`\u4FDD\u5B58\u6E08\u307F: ${config.spaceDomain}.${config.host}`);
 }
@@ -215,6 +249,22 @@ async function handleSubmit(event) {
   }
   if (llmProviderSelect) {
     config.llmProvider = normalizeLlmProvider(llmProviderSelect.value);
+  }
+  if (autoImportDelayInput) {
+    config.autoImportDelaySeconds = normalizeAutoDelay(
+      Number(autoImportDelayInput.value),
+      AUTO_IMPORT_DELAY_MIN,
+      AUTO_IMPORT_DELAY_MAX,
+      DEFAULT_AUTO_IMPORT_DELAY_SECONDS
+    );
+  }
+  if (autoCreateDelayInput) {
+    config.autoCreateDelaySeconds = normalizeAutoDelay(
+      Number(autoCreateDelayInput.value),
+      AUTO_CREATE_DELAY_MIN,
+      AUTO_CREATE_DELAY_MAX,
+      DEFAULT_AUTO_CREATE_DELAY_SECONDS
+    );
   }
   if (!config.spaceDomain || !config.apiKey) {
     setStatus("\u30B9\u30DA\u30FC\u30B9\u30C9\u30E1\u30A4\u30F3\u3068 API \u30AD\u30FC\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002", true);

@@ -10,7 +10,14 @@ import {
   normalizeIssueFetchLimit,
   normalizeExcludedProjects,
   normalizeLlmProvider,
-  type LlmProvider
+  type LlmProvider,
+  DEFAULT_AUTO_IMPORT_DELAY_SECONDS,
+  DEFAULT_AUTO_CREATE_DELAY_SECONDS,
+  AUTO_IMPORT_DELAY_MIN,
+  AUTO_IMPORT_DELAY_MAX,
+  AUTO_CREATE_DELAY_MIN,
+  AUTO_CREATE_DELAY_MAX,
+  normalizeAutoDelay
 } from "@shared/backlogConfig";
 import {
   CHATGPT_PROMPT_TEMPLATE_KEY,
@@ -30,6 +37,8 @@ const promptStatusEl = document.getElementById("prompt-status");
 const issueFetchLimitInput = document.getElementById("issue-fetch-limit") as HTMLInputElement | null;
 const excludedProjectsTextarea = document.getElementById("excluded-projects") as HTMLTextAreaElement | null;
 const llmProviderSelect = document.getElementById("llm-provider") as HTMLSelectElement | null;
+const autoImportDelayInput = document.getElementById("auto-import-delay") as HTMLInputElement | null;
+const autoCreateDelayInput = document.getElementById("auto-create-delay") as HTMLInputElement | null;
 let confirmDialog: HTMLDialogElement | null = null;
 
 async function populateForm() {
@@ -56,6 +65,12 @@ async function populateForm() {
   }
   if (llmProviderSelect) {
     llmProviderSelect.value = config.llmProvider ?? DEFAULT_LLM_PROVIDER;
+  }
+  if (autoImportDelayInput) {
+    autoImportDelayInput.value = String(config.autoImportDelaySeconds ?? DEFAULT_AUTO_IMPORT_DELAY_SECONDS);
+  }
+  if (autoCreateDelayInput) {
+    autoCreateDelayInput.value = String(config.autoCreateDelaySeconds ?? DEFAULT_AUTO_CREATE_DELAY_SECONDS);
   }
   setStatus(`保存済み: ${config.spaceDomain}.${config.host}`);
 }
@@ -99,6 +114,22 @@ async function handleSubmit(event: SubmitEvent) {
   }
   if (llmProviderSelect) {
     config.llmProvider = normalizeLlmProvider(llmProviderSelect.value as LlmProvider);
+  }
+  if (autoImportDelayInput) {
+    config.autoImportDelaySeconds = normalizeAutoDelay(
+      Number(autoImportDelayInput.value),
+      AUTO_IMPORT_DELAY_MIN,
+      AUTO_IMPORT_DELAY_MAX,
+      DEFAULT_AUTO_IMPORT_DELAY_SECONDS
+    );
+  }
+  if (autoCreateDelayInput) {
+    config.autoCreateDelaySeconds = normalizeAutoDelay(
+      Number(autoCreateDelayInput.value),
+      AUTO_CREATE_DELAY_MIN,
+      AUTO_CREATE_DELAY_MAX,
+      DEFAULT_AUTO_CREATE_DELAY_SECONDS
+    );
   }
 
   if (!config.spaceDomain || !config.apiKey) {

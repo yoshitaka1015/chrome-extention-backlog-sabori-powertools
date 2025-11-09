@@ -11,6 +11,8 @@ export interface BacklogAuthConfig {
   issueFetchLimit?: number;
   excludedProjects?: string[];
   llmProvider?: LlmProvider;
+  autoImportDelaySeconds?: number;
+  autoCreateDelaySeconds?: number;
 }
 
 export const BACKLOG_AUTH_KEY = "backlogAuth";
@@ -19,6 +21,12 @@ export const ISSUE_FETCH_LIMIT_MIN = 50;
 export const ISSUE_FETCH_LIMIT_MAX = 1000;
 export const DEFAULT_ISSUE_FETCH_LIMIT = 1000;
 export const DEFAULT_LLM_PROVIDER: LlmProvider = "chatgpt";
+export const AUTO_IMPORT_DELAY_MIN = 10;
+export const AUTO_IMPORT_DELAY_MAX = 600;
+export const DEFAULT_AUTO_IMPORT_DELAY_SECONDS = 60;
+export const AUTO_CREATE_DELAY_MIN = 5;
+export const AUTO_CREATE_DELAY_MAX = 300;
+export const DEFAULT_AUTO_CREATE_DELAY_SECONDS = 15;
 
 export async function getBacklogAuthConfig(): Promise<BacklogAuthConfig | null> {
   const result = await storageGet<BacklogAuthConfig | null>([BACKLOG_AUTH_KEY]);
@@ -35,6 +43,18 @@ export async function getBacklogAuthConfig(): Promise<BacklogAuthConfig | null> 
   config.issueFetchLimit = normalizeIssueFetchLimit(config.issueFetchLimit);
   config.excludedProjects = normalizeExcludedProjects(config.excludedProjects);
   config.llmProvider = normalizeLlmProvider(config.llmProvider);
+  config.autoImportDelaySeconds = normalizeAutoDelay(
+    config.autoImportDelaySeconds,
+    AUTO_IMPORT_DELAY_MIN,
+    AUTO_IMPORT_DELAY_MAX,
+    DEFAULT_AUTO_IMPORT_DELAY_SECONDS
+  );
+  config.autoCreateDelaySeconds = normalizeAutoDelay(
+    config.autoCreateDelaySeconds,
+    AUTO_CREATE_DELAY_MIN,
+    AUTO_CREATE_DELAY_MAX,
+    DEFAULT_AUTO_CREATE_DELAY_SECONDS
+  );
   return config;
 }
 
@@ -85,4 +105,18 @@ export function normalizeLlmProvider(value?: string | null): LlmProvider {
     return "gemini";
   }
   return DEFAULT_LLM_PROVIDER;
+}
+
+export function normalizeAutoDelay(
+  value: unknown,
+  min: number,
+  max: number,
+  fallback: number
+): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  const clamped = Math.floor(Math.max(min, Math.min(max, numeric)));
+  return clamped;
 }
