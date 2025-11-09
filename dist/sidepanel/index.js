@@ -410,6 +410,8 @@ function createTicketCard() {
   let autoImportTimeoutId = null;
   let autoImportIntervalId = null;
   let autoImportRemainingSeconds = 0;
+  let autoProcessPhase = "idle";
+  let pendingAutoCloseTabId = null;
   function showFeedback(type, message) {
     feedback.hidden = false;
     feedback.textContent = message;
@@ -436,8 +438,10 @@ function createTicketCard() {
     if (showMessage) {
       showFeedback("success", "\u81EA\u52D5\u53D6\u308A\u8FBC\u307F\u3092\u30AD\u30E3\u30F3\u30BB\u30EB\u3057\u307E\u3057\u305F\u3002");
     }
+    autoProcessPhase = "idle";
+    pendingAutoCloseTabId = null;
   }
-  async function runAutoImportWorkflow() {
+  async function runAutoImportWorkflow(triggeredByTimer) {
     const projectId = Number(projectSelect.value);
     if (!projectId) {
       showFeedback("error", "\u5148\u306B\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
@@ -463,16 +467,54 @@ function createTicketCard() {
         showFeedback,
         projectId
       );
-      const created = await submitTicketCreation({ auto: true });
-      if (created && tabIdToClose) {
-        void chrome.tabs.remove(tabIdToClose).catch((error) => {
-          console.warn("Failed to close AI tab after auto import:", error);
-        });
+      if (triggeredByTimer) {
+        pendingAutoCloseTabId = tabIdToClose;
+        await startAutoCreateCountdown();
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       showFeedback("error", message);
+      resetAutoImportTimer();
     }
+  }
+  async function startAutoCreateCountdown() {
+    autoProcessPhase = "wait-create";
+    autoImportRemainingSeconds = 15;
+    autoImportButton.dataset.timer = "auto-create";
+    autoImportButton.disabled = false;
+    autoImportButton.textContent = `\u30C1\u30B1\u30C3\u30C8\u4F5C\u6210\u307E\u3067 15\u79D2`;
+    showFeedback("success", "15\u79D2\u5F8C\u306B\u81EA\u52D5\u3067\u30C1\u30B1\u30C3\u30C8\u4F5C\u6210\u3092\u5B9F\u884C\u3057\u307E\u3059\u3002");
+    if (autoImportIntervalId) {
+      window.clearInterval(autoImportIntervalId);
+    }
+    autoImportIntervalId = window.setInterval(() => {
+      autoImportRemainingSeconds -= 1;
+      if (autoImportRemainingSeconds <= 0) {
+        if (autoImportIntervalId) {
+          window.clearInterval(autoImportIntervalId);
+          autoImportIntervalId = null;
+        }
+        autoImportButton.textContent = "\u30C1\u30B1\u30C3\u30C8\u4F5C\u6210\u4E2D\u2026";
+        autoImportButton.disabled = true;
+        return;
+      }
+      autoImportButton.textContent = `\u30C1\u30B1\u30C3\u30C8\u4F5C\u6210\u307E\u3067 ${autoImportRemainingSeconds}\u79D2`;
+    }, 1e3);
+    if (autoImportTimeoutId) {
+      window.clearTimeout(autoImportTimeoutId);
+      autoImportTimeoutId = null;
+    }
+    autoImportTimeoutId = window.setTimeout(async () => {
+      autoImportTimeoutId = null;
+      if (autoImportIntervalId) {
+        window.clearInterval(autoImportIntervalId);
+        autoImportIntervalId = null;
+      }
+      autoImportButton.textContent = "\u30C1\u30B1\u30C3\u30C8\u4F5C\u6210\u4E2D\u2026";
+      autoImportButton.disabled = true;
+      await submitTicketCreation({ auto: true, tabIdToClose: pendingAutoCloseTabId });
+      resetAutoImportTimer();
+    }, 15e3);
   }
   autoImportButton.addEventListener("click", () => {
     if (autoImportTimeoutId) {
@@ -484,6 +526,7 @@ function createTicketCard() {
       return;
     }
     autoImportRemainingSeconds = 60;
+    autoProcessPhase = "wait-import";
     autoImportButton.dataset.timer = "active";
     autoImportButton.textContent = `\u81EA\u52D5\u53D6\u308A\u8FBC\u307F\u307E\u3067 60\u79D2`;
     showFeedback("success", "1\u5206\u5F8C\u306B AI \u306E JSON \u3092\u53D6\u308A\u8FBC\u307F\u3001\u81EA\u52D5\u3067\u30C1\u30B1\u30C3\u30C8\u4F5C\u6210\u3092\u8A66\u307F\u307E\u3059\u3002");
@@ -508,8 +551,7 @@ function createTicketCard() {
       }
       autoImportButton.textContent = "\u53D6\u308A\u8FBC\u307F\u4E2D\u2026";
       autoImportButton.disabled = true;
-      await runAutoImportWorkflow();
-      resetAutoImportTimer();
+      await runAutoImportWorkflow(true);
     }, 6e4);
   });
   importButton.addEventListener("click", async () => {
@@ -555,7 +597,7 @@ function createTicketCard() {
     }
   });
   createButton.addEventListener("click", () => {
-    if (autoImportTimeoutId) {
+    if (autoProcessPhase !== "idle") {
       resetAutoImportTimer();
     }
     void submitTicketCreation();
@@ -618,6 +660,12 @@ function createTicketCard() {
       }
       titleInput.value = "";
       bodyTextarea.value = "";
+      if (options.auto && options.tabIdToClose) {
+        void chrome.tabs.remove(options.tabIdToClose).catch((error) => {
+          console.warn("Failed to close AI tab after auto creation:", error);
+        });
+        pendingAutoCloseTabId = null;
+      }
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

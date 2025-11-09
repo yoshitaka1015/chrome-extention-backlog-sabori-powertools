@@ -440,6 +440,8 @@ function createTicketCard(): HTMLElement {
   let autoImportTimeoutId: number | null = null;
   let autoImportIntervalId: number | null = null;
   let autoImportRemainingSeconds = 0;
+  let autoProcessPhase: "idle" | "wait-import" | "wait-create" = "idle";
+  let pendingAutoCloseTabId: number | null = null;
 
   function showFeedback(type: "error" | "success", message: string): void {
     feedback.hidden = false;
@@ -469,9 +471,11 @@ function createTicketCard(): HTMLElement {
     if (showMessage) {
       showFeedback("success", "自動取り込みをキャンセルしました。");
     }
+    autoProcessPhase = "idle";
+    pendingAutoCloseTabId = null;
   }
 
-  async function runAutoImportWorkflow(): Promise<void> {
+  async function runAutoImportWorkflow(triggeredByTimer: boolean): Promise<void> {
     const projectId = Number(projectSelect.value);
     if (!projectId) {
       showFeedback("error", "先にプロジェクトを選択してください。");
@@ -497,16 +501,55 @@ function createTicketCard(): HTMLElement {
         showFeedback,
         projectId
       );
-      const created = await submitTicketCreation({ auto: true });
-      if (created && tabIdToClose) {
-        void chrome.tabs.remove(tabIdToClose).catch((error) => {
-          console.warn("Failed to close AI tab after auto import:", error);
-        });
+      if (triggeredByTimer) {
+        pendingAutoCloseTabId = tabIdToClose;
+        await startAutoCreateCountdown();
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       showFeedback("error", message);
+      resetAutoImportTimer();
     }
+  }
+
+  async function startAutoCreateCountdown(): Promise<void> {
+    autoProcessPhase = "wait-create";
+    autoImportRemainingSeconds = 15;
+    autoImportButton.dataset.timer = "auto-create";
+    autoImportButton.disabled = false;
+    autoImportButton.textContent = `チケット作成まで 15秒`;
+    showFeedback("success", "15秒後に自動でチケット作成を実行します。");
+    if (autoImportIntervalId) {
+      window.clearInterval(autoImportIntervalId);
+    }
+    autoImportIntervalId = window.setInterval(() => {
+      autoImportRemainingSeconds -= 1;
+      if (autoImportRemainingSeconds <= 0) {
+        if (autoImportIntervalId) {
+          window.clearInterval(autoImportIntervalId);
+          autoImportIntervalId = null;
+        }
+        autoImportButton.textContent = "チケット作成中…";
+        autoImportButton.disabled = true;
+        return;
+      }
+      autoImportButton.textContent = `チケット作成まで ${autoImportRemainingSeconds}秒`;
+    }, 1000);
+    if (autoImportTimeoutId) {
+      window.clearTimeout(autoImportTimeoutId);
+      autoImportTimeoutId = null;
+    }
+    autoImportTimeoutId = window.setTimeout(async () => {
+      autoImportTimeoutId = null;
+      if (autoImportIntervalId) {
+        window.clearInterval(autoImportIntervalId);
+        autoImportIntervalId = null;
+      }
+      autoImportButton.textContent = "チケット作成中…";
+      autoImportButton.disabled = true;
+      await submitTicketCreation({ auto: true, tabIdToClose: pendingAutoCloseTabId });
+      resetAutoImportTimer();
+    }, 15000);
   }
 
   autoImportButton.addEventListener("click", () => {
@@ -519,6 +562,7 @@ function createTicketCard(): HTMLElement {
       return;
     }
     autoImportRemainingSeconds = 60;
+    autoProcessPhase = "wait-import";
     autoImportButton.dataset.timer = "active";
     autoImportButton.textContent = `自動取り込みまで 60秒`;
     showFeedback("success", "1分後に AI の JSON を取り込み、自動でチケット作成を試みます。");
@@ -543,8 +587,7 @@ function createTicketCard(): HTMLElement {
       }
       autoImportButton.textContent = "取り込み中…";
       autoImportButton.disabled = true;
-      await runAutoImportWorkflow();
-      resetAutoImportTimer();
+      await runAutoImportWorkflow(true);
     }, 60000);
   });
 
@@ -594,13 +637,15 @@ function createTicketCard(): HTMLElement {
   });
 
   createButton.addEventListener("click", () => {
-    if (autoImportTimeoutId) {
+    if (autoProcessPhase !== "idle") {
       resetAutoImportTimer();
     }
     void submitTicketCreation();
   });
 
-  async function submitTicketCreation(options: { auto?: boolean } = {}): Promise<boolean> {
+  async function submitTicketCreation(
+    options: { auto?: boolean; tabIdToClose?: number | null } = {}
+  ): Promise<boolean> {
     if (createButton.dataset.loading === "true") {
       return false;
     }
@@ -665,6 +710,12 @@ function createTicketCard(): HTMLElement {
       }
       titleInput.value = "";
       bodyTextarea.value = "";
+      if (options.auto && options.tabIdToClose) {
+        void chrome.tabs.remove(options.tabIdToClose).catch((error) => {
+          console.warn("Failed to close AI tab after auto creation:", error);
+        });
+        pendingAutoCloseTabId = null;
+      }
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
