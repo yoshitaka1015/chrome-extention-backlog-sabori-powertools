@@ -350,10 +350,23 @@ function createTicketCard(): HTMLElement {
 
   const actions = document.createElement("div");
   actions.className = "ticket-form__actions";
-  actions.innerHTML = `
-    <button type="button" class="button button--ghost">JSON を取り込む</button>
-    <button type="button" class="button button--primary">チケットを作成</button>
-  `;
+
+  const autoImportButton = document.createElement("button");
+  autoImportButton.type = "button";
+  autoImportButton.className = "button button--ghost";
+  autoImportButton.textContent = "1分後に自動取り込み";
+
+  const importButton = document.createElement("button");
+  importButton.type = "button";
+  importButton.className = "button button--ghost";
+  importButton.textContent = "JSON を取り込む";
+
+  const createButton = document.createElement("button");
+  createButton.type = "button";
+  createButton.className = "button button--primary";
+  createButton.textContent = "チケットを作成";
+
+  actions.append(autoImportButton, importButton, createButton);
 
   const feedback = document.createElement("p");
   feedback.className = "ticket-form__feedback";
@@ -422,10 +435,11 @@ function createTicketCard(): HTMLElement {
     }
   });
 
-  const importButton = actions.querySelector(".button--ghost") as HTMLButtonElement;
-  const createButton = actions.querySelector(".button--primary") as HTMLButtonElement;
   const titleInput = titleField.input;
   const bodyTextarea = bodyField.textarea;
+  let autoImportTimeoutId: number | null = null;
+  let autoImportIntervalId: number | null = null;
+  let autoImportRemainingSeconds = 0;
 
   function showFeedback(type: "error" | "success", message: string): void {
     feedback.hidden = false;
@@ -440,7 +454,98 @@ function createTicketCard(): HTMLElement {
     feedback.classList.remove("ticket-form__feedback--error", "ticket-form__feedback--success");
   }
 
+  function resetAutoImportTimer(showMessage = false): void {
+    if (autoImportTimeoutId) {
+      window.clearTimeout(autoImportTimeoutId);
+      autoImportTimeoutId = null;
+    }
+    if (autoImportIntervalId) {
+      window.clearInterval(autoImportIntervalId);
+      autoImportIntervalId = null;
+    }
+    autoImportButton.dataset.timer = "idle";
+    autoImportButton.textContent = "1分後に自動取り込み";
+    autoImportButton.disabled = false;
+    if (showMessage) {
+      showFeedback("success", "自動取り込みをキャンセルしました。");
+    }
+  }
+
+  async function runAutoImportWorkflow(): Promise<void> {
+    const projectId = Number(projectSelect.value);
+    if (!projectId) {
+      showFeedback("error", "先にプロジェクトを選択してください。");
+      return;
+    }
+    if (issueTypeSelect.disabled || categorySelect.disabled) {
+      showFeedback("error", "プロジェクト情報を読み込み中です。少し待ってから再度お試しください。");
+      return;
+    }
+    const provider = getActiveLlmProvider();
+    try {
+      showFeedback("success", "AI の回答から JSON を取り込み中です…");
+      const response = await chrome.runtime.sendMessage({ type: "llm:json:request", provider });
+      if (!response || response.error) {
+        const info = getLlmProviderInfo(provider);
+        throw new Error(response?.error ?? `${info.label} から JSON を取得できませんでした。`);
+      }
+      const data = response.data ?? {};
+      applyImportedJson(
+        data as Record<string, unknown>,
+        { issueTypeSelect, categorySelect, titleInput, bodyTextarea, startDateField, dueDateField },
+        showFeedback,
+        projectId
+      );
+      await submitTicketCreation({ auto: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      showFeedback("error", message);
+    }
+  }
+
+  autoImportButton.addEventListener("click", () => {
+    if (autoImportTimeoutId) {
+      resetAutoImportTimer(true);
+      return;
+    }
+    if (!Number(projectSelect.value)) {
+      showFeedback("error", "先にプロジェクトを選択してください。");
+      return;
+    }
+    autoImportRemainingSeconds = 60;
+    autoImportButton.dataset.timer = "active";
+    autoImportButton.textContent = `自動取り込みまで 60秒`;
+    showFeedback("success", "1分後に AI の JSON を取り込み、自動でチケット作成を試みます。");
+    autoImportIntervalId = window.setInterval(() => {
+      autoImportRemainingSeconds -= 1;
+      if (autoImportRemainingSeconds <= 0) {
+        if (autoImportIntervalId) {
+          window.clearInterval(autoImportIntervalId);
+          autoImportIntervalId = null;
+        }
+        autoImportButton.textContent = "取り込み中…";
+        autoImportButton.disabled = true;
+        return;
+      }
+      autoImportButton.textContent = `自動取り込みまで ${autoImportRemainingSeconds}秒`;
+    }, 1000);
+    autoImportTimeoutId = window.setTimeout(async () => {
+      autoImportTimeoutId = null;
+      if (autoImportIntervalId) {
+        window.clearInterval(autoImportIntervalId);
+        autoImportIntervalId = null;
+      }
+      autoImportButton.textContent = "取り込み中…";
+      autoImportButton.disabled = true;
+      await runAutoImportWorkflow();
+      resetAutoImportTimer();
+    }, 60000);
+  });
+
   importButton.addEventListener("click", async () => {
+    if (autoImportTimeoutId) {
+      resetAutoImportTimer();
+    }
     if (importButton.dataset.loading === "true") {
       return;
     }
@@ -482,9 +587,16 @@ function createTicketCard(): HTMLElement {
     }
   });
 
-  createButton.addEventListener("click", async () => {
+  createButton.addEventListener("click", () => {
+    if (autoImportTimeoutId) {
+      resetAutoImportTimer();
+    }
+    void submitTicketCreation();
+  });
+
+  async function submitTicketCreation(options: { auto?: boolean } = {}): Promise<boolean> {
     if (createButton.dataset.loading === "true") {
-      return;
+      return false;
     }
     clearFeedback();
 
@@ -492,21 +604,21 @@ function createTicketCard(): HTMLElement {
     if (!projectId) {
       showFeedback("error", "プロジェクトを選択してください。");
       projectSelect.focus();
-      return;
+      return false;
     }
 
     const issueTypeId = Number(issueTypeSelect.value);
     if (!issueTypeId || issueTypeSelect.disabled) {
       showFeedback("error", "種別を選択してください。");
       issueTypeSelect.focus();
-      return;
+      return false;
     }
 
     const summary = titleInput.value.trim();
     if (!summary) {
       showFeedback("error", "タイトルを入力してください。");
       titleInput.focus();
-      return;
+      return false;
     }
 
     const startDate = startDateField.input.value;
@@ -514,7 +626,7 @@ function createTicketCard(): HTMLElement {
     if (startDate && dueDate && startDate > dueDate) {
       showFeedback("error", "開始日は期限日以前の日付を指定してください。");
       dueDateField.input.focus();
-      return;
+      return false;
     }
 
     const payload = {
@@ -528,7 +640,7 @@ function createTicketCard(): HTMLElement {
       assigneeId: !assigneeSelect.disabled && Number(assigneeSelect.value) > 0 ? Number(assigneeSelect.value) : undefined
     };
 
-    createButton.dataset.loading = "true";
+    createButton.dataset.loading = options.auto ? "auto" : "manual";
     createButton.disabled = true;
 
     try {
@@ -537,17 +649,26 @@ function createTicketCard(): HTMLElement {
         throw new Error(response?.error ?? "チケットを作成できませんでした。");
       }
       const issueKey = response.issue?.issueKey ?? "";
-      showFeedback("success", issueKey ? `チケット ${issueKey} を作成しました。` : "チケットを作成しました。");
+      if (options.auto) {
+        showFeedback(
+          "success",
+          issueKey ? `自動でチケット ${issueKey} を作成しました。` : "自動でチケットを作成しました。"
+        );
+      } else {
+        showFeedback("success", issueKey ? `チケット ${issueKey} を作成しました。` : "チケットを作成しました。");
+      }
       titleInput.value = "";
       bodyTextarea.value = "";
+      return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       showFeedback("error", message);
+      return false;
     } finally {
       delete createButton.dataset.loading;
       createButton.disabled = false;
     }
-  });
+  }
 
   return card;
 }

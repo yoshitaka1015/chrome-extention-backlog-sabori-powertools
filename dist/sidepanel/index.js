@@ -330,10 +330,19 @@ function createTicketCard() {
   form.append(titleField.container, bodyField.container);
   const actions = document.createElement("div");
   actions.className = "ticket-form__actions";
-  actions.innerHTML = `
-    <button type="button" class="button button--ghost">JSON \u3092\u53D6\u308A\u8FBC\u3080</button>
-    <button type="button" class="button button--primary">\u30C1\u30B1\u30C3\u30C8\u3092\u4F5C\u6210</button>
-  `;
+  const autoImportButton = document.createElement("button");
+  autoImportButton.type = "button";
+  autoImportButton.className = "button button--ghost";
+  autoImportButton.textContent = "1\u5206\u5F8C\u306B\u81EA\u52D5\u53D6\u308A\u8FBC\u307F";
+  const importButton = document.createElement("button");
+  importButton.type = "button";
+  importButton.className = "button button--ghost";
+  importButton.textContent = "JSON \u3092\u53D6\u308A\u8FBC\u3080";
+  const createButton = document.createElement("button");
+  createButton.type = "button";
+  createButton.className = "button button--primary";
+  createButton.textContent = "\u30C1\u30B1\u30C3\u30C8\u3092\u4F5C\u6210";
+  actions.append(autoImportButton, importButton, createButton);
   const feedback = document.createElement("p");
   feedback.className = "ticket-form__feedback";
   feedback.hidden = true;
@@ -396,10 +405,11 @@ function createTicketCard() {
       });
     }
   });
-  const importButton = actions.querySelector(".button--ghost");
-  const createButton = actions.querySelector(".button--primary");
   const titleInput = titleField.input;
   const bodyTextarea = bodyField.textarea;
+  let autoImportTimeoutId = null;
+  let autoImportIntervalId = null;
+  let autoImportRemainingSeconds = 0;
   function showFeedback(type, message) {
     feedback.hidden = false;
     feedback.textContent = message;
@@ -411,7 +421,95 @@ function createTicketCard() {
     feedback.textContent = "";
     feedback.classList.remove("ticket-form__feedback--error", "ticket-form__feedback--success");
   }
+  function resetAutoImportTimer(showMessage = false) {
+    if (autoImportTimeoutId) {
+      window.clearTimeout(autoImportTimeoutId);
+      autoImportTimeoutId = null;
+    }
+    if (autoImportIntervalId) {
+      window.clearInterval(autoImportIntervalId);
+      autoImportIntervalId = null;
+    }
+    autoImportButton.dataset.timer = "idle";
+    autoImportButton.textContent = "1\u5206\u5F8C\u306B\u81EA\u52D5\u53D6\u308A\u8FBC\u307F";
+    autoImportButton.disabled = false;
+    if (showMessage) {
+      showFeedback("success", "\u81EA\u52D5\u53D6\u308A\u8FBC\u307F\u3092\u30AD\u30E3\u30F3\u30BB\u30EB\u3057\u307E\u3057\u305F\u3002");
+    }
+  }
+  async function runAutoImportWorkflow() {
+    const projectId = Number(projectSelect.value);
+    if (!projectId) {
+      showFeedback("error", "\u5148\u306B\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+      return;
+    }
+    if (issueTypeSelect.disabled || categorySelect.disabled) {
+      showFeedback("error", "\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u60C5\u5831\u3092\u8AAD\u307F\u8FBC\u307F\u4E2D\u3067\u3059\u3002\u5C11\u3057\u5F85\u3063\u3066\u304B\u3089\u518D\u5EA6\u304A\u8A66\u3057\u304F\u3060\u3055\u3044\u3002");
+      return;
+    }
+    const provider = getActiveLlmProvider();
+    try {
+      showFeedback("success", "AI \u306E\u56DE\u7B54\u304B\u3089 JSON \u3092\u53D6\u308A\u8FBC\u307F\u4E2D\u3067\u3059\u2026");
+      const response = await chrome.runtime.sendMessage({ type: "llm:json:request", provider });
+      if (!response || response.error) {
+        const info = getLlmProviderInfo(provider);
+        throw new Error(response?.error ?? `${info.label} \u304B\u3089 JSON \u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002`);
+      }
+      const data = response.data ?? {};
+      applyImportedJson(
+        data,
+        { issueTypeSelect, categorySelect, titleInput, bodyTextarea, startDateField, dueDateField },
+        showFeedback,
+        projectId
+      );
+      await submitTicketCreation({ auto: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      showFeedback("error", message);
+    }
+  }
+  autoImportButton.addEventListener("click", () => {
+    if (autoImportTimeoutId) {
+      resetAutoImportTimer(true);
+      return;
+    }
+    if (!Number(projectSelect.value)) {
+      showFeedback("error", "\u5148\u306B\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+      return;
+    }
+    autoImportRemainingSeconds = 60;
+    autoImportButton.dataset.timer = "active";
+    autoImportButton.textContent = `\u81EA\u52D5\u53D6\u308A\u8FBC\u307F\u307E\u3067 60\u79D2`;
+    showFeedback("success", "1\u5206\u5F8C\u306B AI \u306E JSON \u3092\u53D6\u308A\u8FBC\u307F\u3001\u81EA\u52D5\u3067\u30C1\u30B1\u30C3\u30C8\u4F5C\u6210\u3092\u8A66\u307F\u307E\u3059\u3002");
+    autoImportIntervalId = window.setInterval(() => {
+      autoImportRemainingSeconds -= 1;
+      if (autoImportRemainingSeconds <= 0) {
+        if (autoImportIntervalId) {
+          window.clearInterval(autoImportIntervalId);
+          autoImportIntervalId = null;
+        }
+        autoImportButton.textContent = "\u53D6\u308A\u8FBC\u307F\u4E2D\u2026";
+        autoImportButton.disabled = true;
+        return;
+      }
+      autoImportButton.textContent = `\u81EA\u52D5\u53D6\u308A\u8FBC\u307F\u307E\u3067 ${autoImportRemainingSeconds}\u79D2`;
+    }, 1e3);
+    autoImportTimeoutId = window.setTimeout(async () => {
+      autoImportTimeoutId = null;
+      if (autoImportIntervalId) {
+        window.clearInterval(autoImportIntervalId);
+        autoImportIntervalId = null;
+      }
+      autoImportButton.textContent = "\u53D6\u308A\u8FBC\u307F\u4E2D\u2026";
+      autoImportButton.disabled = true;
+      await runAutoImportWorkflow();
+      resetAutoImportTimer();
+    }, 6e4);
+  });
   importButton.addEventListener("click", async () => {
+    if (autoImportTimeoutId) {
+      resetAutoImportTimer();
+    }
     if (importButton.dataset.loading === "true") {
       return;
     }
@@ -450,35 +548,41 @@ function createTicketCard() {
       importButton.disabled = false;
     }
   });
-  createButton.addEventListener("click", async () => {
+  createButton.addEventListener("click", () => {
+    if (autoImportTimeoutId) {
+      resetAutoImportTimer();
+    }
+    void submitTicketCreation();
+  });
+  async function submitTicketCreation(options = {}) {
     if (createButton.dataset.loading === "true") {
-      return;
+      return false;
     }
     clearFeedback();
     const projectId = Number(projectSelect.value);
     if (!projectId) {
       showFeedback("error", "\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       projectSelect.focus();
-      return;
+      return false;
     }
     const issueTypeId = Number(issueTypeSelect.value);
     if (!issueTypeId || issueTypeSelect.disabled) {
       showFeedback("error", "\u7A2E\u5225\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       issueTypeSelect.focus();
-      return;
+      return false;
     }
     const summary = titleInput.value.trim();
     if (!summary) {
       showFeedback("error", "\u30BF\u30A4\u30C8\u30EB\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       titleInput.focus();
-      return;
+      return false;
     }
     const startDate = startDateField.input.value;
     const dueDate = dueDateField.input.value;
     if (startDate && dueDate && startDate > dueDate) {
       showFeedback("error", "\u958B\u59CB\u65E5\u306F\u671F\u9650\u65E5\u4EE5\u524D\u306E\u65E5\u4ED8\u3092\u6307\u5B9A\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       dueDateField.input.focus();
-      return;
+      return false;
     }
     const payload = {
       projectId,
@@ -490,7 +594,7 @@ function createTicketCard() {
       categoryId: Number(categorySelect.value) > 0 ? Number(categorySelect.value) : void 0,
       assigneeId: !assigneeSelect.disabled && Number(assigneeSelect.value) > 0 ? Number(assigneeSelect.value) : void 0
     };
-    createButton.dataset.loading = "true";
+    createButton.dataset.loading = options.auto ? "auto" : "manual";
     createButton.disabled = true;
     try {
       const response = await chrome.runtime.sendMessage({ type: "backlog:issue:create", payload });
@@ -498,17 +602,26 @@ function createTicketCard() {
         throw new Error(response?.error ?? "\u30C1\u30B1\u30C3\u30C8\u3092\u4F5C\u6210\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002");
       }
       const issueKey = response.issue?.issueKey ?? "";
-      showFeedback("success", issueKey ? `\u30C1\u30B1\u30C3\u30C8 ${issueKey} \u3092\u4F5C\u6210\u3057\u307E\u3057\u305F\u3002` : "\u30C1\u30B1\u30C3\u30C8\u3092\u4F5C\u6210\u3057\u307E\u3057\u305F\u3002");
+      if (options.auto) {
+        showFeedback(
+          "success",
+          issueKey ? `\u81EA\u52D5\u3067\u30C1\u30B1\u30C3\u30C8 ${issueKey} \u3092\u4F5C\u6210\u3057\u307E\u3057\u305F\u3002` : "\u81EA\u52D5\u3067\u30C1\u30B1\u30C3\u30C8\u3092\u4F5C\u6210\u3057\u307E\u3057\u305F\u3002"
+        );
+      } else {
+        showFeedback("success", issueKey ? `\u30C1\u30B1\u30C3\u30C8 ${issueKey} \u3092\u4F5C\u6210\u3057\u307E\u3057\u305F\u3002` : "\u30C1\u30B1\u30C3\u30C8\u3092\u4F5C\u6210\u3057\u307E\u3057\u305F\u3002");
+      }
       titleInput.value = "";
       bodyTextarea.value = "";
+      return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       showFeedback("error", message);
+      return false;
     } finally {
       delete createButton.dataset.loading;
       createButton.disabled = false;
     }
-  });
+  }
   return card;
 }
 function createLlmCard() {
