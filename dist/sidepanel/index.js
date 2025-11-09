@@ -45,11 +45,41 @@ async function getPromptTemplate() {
 
 // src/shared/backlogConfig.ts
 var BACKLOG_AUTH_KEY = "backlogAuth";
+var DEFAULT_LLM_PROVIDER = "chatgpt";
+function normalizeLlmProvider(value) {
+  if (value === "gemini") {
+    return "gemini";
+  }
+  return DEFAULT_LLM_PROVIDER;
+}
 
 // src/sidepanel/index.ts
 var CHATGPT_URL = "https://chatgpt.com/?temporary-chat=true";
+var GEMINI_URL = "https://gemini.google.com/app?hl=ja";
 var STORAGE_LAST_PROJECT_ID_KEY = "sidepanel:lastProjectId";
 var STORAGE_PROJECT_PREFS_KEY = "sidepanel:lastProjectPrefs";
+var LLM_PROVIDER_CONFIG = {
+  chatgpt: {
+    id: "chatgpt",
+    label: "ChatGPT",
+    cardTitle: "ChatGPT \u9023\u643A",
+    description: "\u30C1\u30B1\u30C3\u30C8\u306B\u3064\u3044\u3066\u306E\u60C5\u5831\u3092\u30AF\u30EA\u30C3\u30D7\u30DC\u30FC\u30C9\u306B\u30B3\u30D4\u30FC\u3057\u3066\u3001\u4EE5\u4E0B\u306E\u30DC\u30BF\u30F3\u3092\u62BC\u3057\u3066\u304F\u3060\u3055\u3044\u3002",
+    openButtonLabel: "ChatGPT \u3092\u958B\u304F",
+    successMessage: (hasWarnings, warnings) => hasWarnings ? `ChatGPT \u306E JSON \u3092\u53D6\u308A\u8FBC\u307F\u307E\u3057\u305F\u3002\uFF08\u672A\u8A2D\u5B9A: ${warnings.join(", ")}\uFF09` : "ChatGPT \u306E JSON \u3092\u53D6\u308A\u8FBC\u307F\u307E\u3057\u305F\u3002",
+    openUrl: CHATGPT_URL,
+    noTabError: "ChatGPT \u306E\u30BF\u30D6\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002\u5148\u306B ChatGPT \u3092\u958B\u3044\u3066\u304F\u3060\u3055\u3044\u3002"
+  },
+  gemini: {
+    id: "gemini",
+    label: "Gemini",
+    cardTitle: "Gemini \u9023\u643A",
+    description: "\u30C1\u30B1\u30C3\u30C8\u306E\u60C5\u5831\u3092\u30B3\u30D4\u30FC\u3057\u305F\u3042\u3068\u3001\u4EE5\u4E0B\u306E\u30DC\u30BF\u30F3\u304B\u3089 Gemini \u3092\u958B\u3044\u3066\u304F\u3060\u3055\u3044\u3002",
+    openButtonLabel: "Gemini \u3092\u958B\u304F",
+    successMessage: (hasWarnings, warnings) => hasWarnings ? `Gemini \u306E JSON \u3092\u53D6\u308A\u8FBC\u307F\u307E\u3057\u305F\u3002\uFF08\u672A\u8A2D\u5B9A: ${warnings.join(", ")}\uFF09` : "Gemini \u306E JSON \u3092\u53D6\u308A\u8FBC\u307F\u307E\u3057\u305F\u3002",
+    openUrl: GEMINI_URL,
+    noTabError: "Gemini \u306E\u30BF\u30D6\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002\u5148\u306B Gemini \u3092\u958B\u3044\u3066\u304F\u3060\u3055\u3044\u3002"
+  }
+};
 var cachedProjectDetails = null;
 var projectDetailsPromise = null;
 var ticketProjectSelectRef = null;
@@ -61,14 +91,48 @@ var formPreferencesLoaded = false;
 var promptTemplateCache = null;
 var excludedProjectIds = /* @__PURE__ */ new Set();
 var excludedProjectKeys = /* @__PURE__ */ new Set();
+var currentLlmProvider = DEFAULT_LLM_PROVIDER;
+var llmUiRefs = {
+  heading: null,
+  description: null,
+  openButton: null
+};
+function getActiveLlmProvider() {
+  return currentLlmProvider;
+}
+function getLlmProviderInfo(provider = currentLlmProvider) {
+  return LLM_PROVIDER_CONFIG[provider];
+}
+function setActiveLlmProvider(provider) {
+  const normalized = normalizeLlmProvider(provider);
+  if (currentLlmProvider === normalized) {
+    return;
+  }
+  currentLlmProvider = normalized;
+  updateLlmUiTexts();
+}
+function updateLlmUiTexts() {
+  const info = getLlmProviderInfo();
+  if (llmUiRefs.heading) {
+    llmUiRefs.heading.textContent = info.cardTitle;
+  }
+  if (llmUiRefs.description) {
+    llmUiRefs.description.textContent = info.description;
+  }
+  if (llmUiRefs.openButton) {
+    llmUiRefs.openButton.textContent = info.openButtonLabel;
+  }
+}
 async function refreshAuthPreferences() {
   try {
     const response = await chrome.runtime.sendMessage({ type: "backlog-auth:get" });
     const config = response?.config;
     updateProjectExclusions(config?.excludedProjects ?? []);
+    setActiveLlmProvider(config?.llmProvider ?? DEFAULT_LLM_PROVIDER);
   } catch (error) {
     console.warn("Failed to load Backlog auth config", error);
     updateProjectExclusions([]);
+    setActiveLlmProvider(DEFAULT_LLM_PROVIDER);
   }
 }
 function updateProjectExclusions(tokens) {
@@ -197,7 +261,7 @@ async function init() {
     console.warn("Failed to load Backlog preferences", error);
   });
   void loadProjectDetails(true);
-  root.append(createChatGPTCard(), createTicketCard());
+  root.append(createLlmCard(), createTicketCard());
 }
 function createCardBase(title, description) {
   const card = document.createElement("div");
@@ -365,9 +429,11 @@ function createTicketCard() {
     importButton.disabled = true;
     try {
       await ensureFormPreferencesLoaded();
-      const response = await chrome.runtime.sendMessage({ type: "chatgpt:json:request" });
+      const provider = getActiveLlmProvider();
+      const response = await chrome.runtime.sendMessage({ type: "llm:json:request", provider });
       if (!response || response.error) {
-        throw new Error(response?.error ?? "ChatGPT \u304B\u3089 JSON \u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002");
+        const info = getLlmProviderInfo(provider);
+        throw new Error(response?.error ?? `${info.label} \u304B\u3089 JSON \u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002`);
       }
       const data = response.data ?? {};
       applyImportedJson(
@@ -445,8 +511,17 @@ function createTicketCard() {
   });
   return card;
 }
-function createChatGPTCard() {
-  const card = createCardBase("ChatGPT \u9023\u643A", "\u30C1\u30B1\u30C3\u30C8\u306B\u3064\u3044\u3066\u306E\u60C5\u5831\u3092\u30AF\u30EA\u30C3\u30D7\u30DC\u30FC\u30C9\u306B\u30B3\u30D4\u30FC\u3057\u3066\u3001\u4EE5\u4E0B\u306E\u30DC\u30BF\u30F3\u3092\u62BC\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
+function createLlmCard() {
+  const providerInfo = getLlmProviderInfo();
+  const card = createCardBase(providerInfo.cardTitle, providerInfo.description);
+  const headingEl = card.querySelector("h2");
+  const descriptionEl = card.querySelector(".panel-card__description");
+  if (headingEl) {
+    llmUiRefs.heading = headingEl;
+  }
+  if (descriptionEl) {
+    llmUiRefs.description = descriptionEl;
+  }
   void ensureFormPreferencesLoaded();
   const projectField = document.createElement("div");
   projectField.className = "ticket-form__field";
@@ -485,8 +560,12 @@ function createChatGPTCard() {
   const openButton = document.createElement("button");
   openButton.type = "button";
   openButton.className = "button button--primary";
-  openButton.textContent = "ChatGPT \u3092\u958B\u304F";
+  openButton.textContent = providerInfo.openButtonLabel;
+  llmUiRefs.openButton = openButton;
+  updateLlmUiTexts();
   openButton.addEventListener("click", async () => {
+    const activeProvider = getActiveLlmProvider();
+    const activeInfo = getLlmProviderInfo(activeProvider);
     if (openButton.dataset.loading === "true") {
       return;
     }
@@ -506,15 +585,15 @@ function createChatGPTCard() {
       copyButton.hidden = false;
       copyButton.textContent = "\u30D7\u30ED\u30F3\u30D7\u30C8\u3092\u30B3\u30D4\u30FC\u3059\u308B";
     } catch (error) {
-      console.warn("Failed to prepare ChatGPT prompt", error);
+      console.warn("Failed to prepare prompt for provider", error);
       resetPromptCache();
       return;
     } finally {
       delete openButton.dataset.loading;
       openButton.disabled = false;
     }
-    chrome.tabs.create({ url: CHATGPT_URL }).catch((error) => {
-      console.warn("Failed to open ChatGPT tab", error);
+    chrome.tabs.create({ url: activeInfo.openUrl }).catch((error) => {
+      console.warn("Failed to open provider tab", error);
     });
   });
   viewport.append(openButton, copyButton);
@@ -778,9 +857,11 @@ function applyImportedJson(data, context, showFeedback, projectId) {
     categoryId: Number(context.categorySelect.value) > 0 ? Number(context.categorySelect.value) : void 0
   });
   if (warnings.length) {
-    showFeedback("success", `ChatGPT \u306E JSON \u3092\u53D6\u308A\u8FBC\u307F\u307E\u3057\u305F\u3002\uFF08\u672A\u8A2D\u5B9A: ${warnings.join(", ")}\uFF09`);
+    const info = getLlmProviderInfo();
+    showFeedback("success", info.successMessage(true, warnings));
   } else {
-    showFeedback("success", "ChatGPT \u306E JSON \u3092\u53D6\u308A\u8FBC\u307F\u307E\u3057\u305F\u3002");
+    const info = getLlmProviderInfo();
+    showFeedback("success", info.successMessage(false, warnings));
   }
 }
 function syncChatGptProjectSelection(projectId) {

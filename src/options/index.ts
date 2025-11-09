@@ -6,8 +6,11 @@ import {
   getBacklogAuthConfig,
   saveBacklogAuthConfig,
   DEFAULT_ISSUE_FETCH_LIMIT,
+  DEFAULT_LLM_PROVIDER,
   normalizeIssueFetchLimit,
-  normalizeExcludedProjects
+  normalizeExcludedProjects,
+  normalizeLlmProvider,
+  type LlmProvider
 } from "@shared/backlogConfig";
 import {
   CHATGPT_PROMPT_TEMPLATE_KEY,
@@ -26,6 +29,7 @@ const promptResetButton = document.getElementById("prompt-reset");
 const promptStatusEl = document.getElementById("prompt-status");
 const issueFetchLimitInput = document.getElementById("issue-fetch-limit") as HTMLInputElement | null;
 const excludedProjectsTextarea = document.getElementById("excluded-projects") as HTMLTextAreaElement | null;
+const llmProviderSelect = document.getElementById("llm-provider") as HTMLSelectElement | null;
 let confirmDialog: HTMLDialogElement | null = null;
 
 async function populateForm() {
@@ -49,6 +53,9 @@ async function populateForm() {
   }
   if (excludedProjectsTextarea) {
     excludedProjectsTextarea.value = (config.excludedProjects ?? []).join("\n");
+  }
+  if (llmProviderSelect) {
+    llmProviderSelect.value = config.llmProvider ?? DEFAULT_LLM_PROVIDER;
   }
   setStatus(`保存済み: ${config.spaceDomain}.${config.host}`);
 }
@@ -89,6 +96,9 @@ async function handleSubmit(event: SubmitEvent) {
   }
   if (excludedProjectsTextarea) {
     config.excludedProjects = normalizeExcludedProjects(parseExcludedProjectsInput(excludedProjectsTextarea.value));
+  }
+  if (llmProviderSelect) {
+    config.llmProvider = normalizeLlmProvider(llmProviderSelect.value as LlmProvider);
   }
 
   if (!config.spaceDomain || !config.apiKey) {

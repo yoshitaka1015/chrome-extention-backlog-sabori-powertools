@@ -19,6 +19,7 @@ var BACKLOG_ISSUES_REVISION_KEY = "backlogManagerIssuesRevision";
 var ISSUE_FETCH_LIMIT_MIN = 50;
 var ISSUE_FETCH_LIMIT_MAX = 1e3;
 var DEFAULT_ISSUE_FETCH_LIMIT = 1e3;
+var DEFAULT_LLM_PROVIDER = "chatgpt";
 async function getBacklogAuthConfig() {
   const result = await storageGet([BACKLOG_AUTH_KEY]);
   const config = result[BACKLOG_AUTH_KEY];
@@ -33,6 +34,7 @@ async function getBacklogAuthConfig() {
   }
   config.issueFetchLimit = normalizeIssueFetchLimit(config.issueFetchLimit);
   config.excludedProjects = normalizeExcludedProjects(config.excludedProjects);
+  config.llmProvider = normalizeLlmProvider(config.llmProvider);
   return config;
 }
 function backlogBaseUrl(config) {
@@ -61,6 +63,12 @@ function normalizeExcludedProjects(raw) {
     seen.add(trimmed);
   });
   return Array.from(seen);
+}
+function normalizeLlmProvider(value) {
+  if (value === "gemini") {
+    return "gemini";
+  }
+  return DEFAULT_LLM_PROVIDER;
 }
 
 // src/background/backlogClient.ts
@@ -632,6 +640,7 @@ function isRequestDeniedError(error) {
 // src/background/serviceWorker.ts
 var SIDE_PANEL_PATH = "sidepanel/index.html";
 var CHATGPT_URL_PATTERNS = ["https://chatgpt.com/*", "https://chat.openai.com/*"];
+var GEMINI_URL_PATTERNS = ["https://gemini.google.com/*"];
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: "backlog-quick-capture",
@@ -700,8 +709,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     createIssue(params).then((issue) => sendResponse({ ok: true, issue })).catch((error) => sendResponse({ error: error?.message ?? String(error) }));
     return true;
   }
+  if (message?.type === "llm:json:request") {
+    const provider = normalizeLlmProvider(message?.provider);
+    extractJsonFromProvider(provider).then((result) => sendResponse({ data: result.data, raw: result.raw })).catch((error) => sendResponse({ error: error instanceof Error ? error.message : String(error) }));
+    return true;
+  }
   if (message?.type === "chatgpt:json:request") {
-    extractJsonFromChatGpt().then((result) => sendResponse({ data: result.data, raw: result.raw })).catch((error) => sendResponse({ error: error instanceof Error ? error.message : String(error) }));
+    extractJsonFromProvider("chatgpt").then((result) => sendResponse({ data: result.data, raw: result.raw })).catch((error) => sendResponse({ error: error instanceof Error ? error.message : String(error) }));
     return true;
   }
   return void 0;
@@ -738,10 +752,32 @@ function delay(ms) {
     setTimeout(resolve, ms);
   });
 }
+async function extractJsonFromProvider(provider) {
+  if (provider === "gemini") {
+    return extractJsonFromGemini();
+  }
+  return extractJsonFromChatGpt();
+}
 async function extractJsonFromChatGpt() {
-  const tabs = await chrome.tabs.query({ url: CHATGPT_URL_PATTERNS });
+  return extractJsonFromTabs(
+    CHATGPT_URL_PATTERNS,
+    "chatgpt:extract-json",
+    "ChatGPT \u306E\u30BF\u30D6\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002\u5148\u306B ChatGPT \u3092\u958B\u3044\u3066\u304F\u3060\u3055\u3044\u3002",
+    "ChatGPT \u304B\u3089\u6709\u52B9\u306A JSON \u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002"
+  );
+}
+async function extractJsonFromGemini() {
+  return extractJsonFromTabs(
+    GEMINI_URL_PATTERNS,
+    "gemini:extract-json",
+    "Gemini \u306E\u30BF\u30D6\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002\u5148\u306B Gemini \u3092\u958B\u3044\u3066\u304F\u3060\u3055\u3044\u3002",
+    "Gemini \u304B\u3089\u6709\u52B9\u306A JSON \u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002"
+  );
+}
+async function extractJsonFromTabs(patterns, messageType, notFoundMessage, failureMessage) {
+  const tabs = await chrome.tabs.query({ url: patterns });
   if (!tabs.length) {
-    throw new Error("ChatGPT \u306E\u30BF\u30D6\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002\u5148\u306B ChatGPT \u3092\u958B\u3044\u3066\u304F\u3060\u3055\u3044\u3002");
+    throw new Error(notFoundMessage);
   }
   const orderedTabs = [
     ...tabs.filter((tab) => tab.active),
@@ -753,7 +789,7 @@ async function extractJsonFromChatGpt() {
       continue;
     }
     try {
-      const response = await chrome.tabs.sendMessage(tab.id, { type: "chatgpt:extract-json" });
+      const response = await chrome.tabs.sendMessage(tab.id, { type: messageType });
       if (response?.ok) {
         return { data: response.data, raw: response.raw };
       }
@@ -770,6 +806,6 @@ async function extractJsonFromChatGpt() {
   if (lastError instanceof Error) {
     throw lastError;
   }
-  throw new Error("ChatGPT \u304B\u3089\u6709\u52B9\u306A JSON \u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002");
+  throw new Error(failureMessage);
 }
 //# sourceMappingURL=serviceWorker.js.map

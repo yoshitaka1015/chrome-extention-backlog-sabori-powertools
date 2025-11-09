@@ -1,4 +1,4 @@
-import { getBacklogAuthConfig, BACKLOG_AUTH_KEY } from "@shared/backlogConfig";
+import { getBacklogAuthConfig, BACKLOG_AUTH_KEY, normalizeLlmProvider } from "@shared/backlogConfig";
 import {
   getTodayTomorrowIssues,
   clearBacklogIssueCache,
@@ -12,6 +12,7 @@ import {
 
 const SIDE_PANEL_PATH = "sidepanel/index.html";
 const CHATGPT_URL_PATTERNS = ["https://chatgpt.com/*", "https://chat.openai.com/*"];
+const GEMINI_URL_PATTERNS = ["https://gemini.google.com/*"];
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
@@ -101,8 +102,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((error) => sendResponse({ error: error?.message ?? String(error) }));
     return true;
   }
+  if (message?.type === "llm:json:request") {
+    const provider = normalizeLlmProvider(message?.provider);
+    extractJsonFromProvider(provider)
+      .then((result) => sendResponse({ data: result.data, raw: result.raw }))
+      .catch((error) => sendResponse({ error: error instanceof Error ? error.message : String(error) }));
+    return true;
+  }
   if (message?.type === "chatgpt:json:request") {
-    extractJsonFromChatGpt()
+    extractJsonFromProvider("chatgpt")
       .then((result) => sendResponse({ data: result.data, raw: result.raw }))
       .catch((error) => sendResponse({ error: error instanceof Error ? error.message : String(error) }));
     return true;
@@ -151,10 +159,40 @@ function delay(ms: number): Promise<void> {
   });
 }
 
+async function extractJsonFromProvider(provider: "chatgpt" | "gemini"): Promise<{ data: unknown; raw: string }> {
+  if (provider === "gemini") {
+    return extractJsonFromGemini();
+  }
+  return extractJsonFromChatGpt();
+}
+
 async function extractJsonFromChatGpt(): Promise<{ data: unknown; raw: string }> {
-  const tabs = await chrome.tabs.query({ url: CHATGPT_URL_PATTERNS });
+  return extractJsonFromTabs(
+    CHATGPT_URL_PATTERNS,
+    "chatgpt:extract-json",
+    "ChatGPT のタブが見つかりません。先に ChatGPT を開いてください。",
+    "ChatGPT から有効な JSON を取得できませんでした。"
+  );
+}
+
+async function extractJsonFromGemini(): Promise<{ data: unknown; raw: string }> {
+  return extractJsonFromTabs(
+    GEMINI_URL_PATTERNS,
+    "gemini:extract-json",
+    "Gemini のタブが見つかりません。先に Gemini を開いてください。",
+    "Gemini から有効な JSON を取得できませんでした。"
+  );
+}
+
+async function extractJsonFromTabs(
+  patterns: string[],
+  messageType: string,
+  notFoundMessage: string,
+  failureMessage: string
+): Promise<{ data: unknown; raw: string }> {
+  const tabs = await chrome.tabs.query({ url: patterns });
   if (!tabs.length) {
-    throw new Error("ChatGPT のタブが見つかりません。先に ChatGPT を開いてください。");
+    throw new Error(notFoundMessage);
   }
 
   const orderedTabs = [
@@ -168,7 +206,7 @@ async function extractJsonFromChatGpt(): Promise<{ data: unknown; raw: string }>
       continue;
     }
     try {
-      const response = await chrome.tabs.sendMessage(tab.id, { type: "chatgpt:extract-json" });
+      const response = await chrome.tabs.sendMessage(tab.id, { type: messageType });
       if (response?.ok) {
         return { data: response.data, raw: response.raw };
       }
@@ -186,5 +224,5 @@ async function extractJsonFromChatGpt(): Promise<{ data: unknown; raw: string }>
   if (lastError instanceof Error) {
     throw lastError;
   }
-  throw new Error("ChatGPT から有効な JSON を取得できませんでした。");
+  throw new Error(failureMessage);
 }

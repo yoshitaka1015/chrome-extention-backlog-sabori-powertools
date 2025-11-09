@@ -42,6 +42,7 @@ var BACKLOG_AUTH_KEY = "backlogAuth";
 var ISSUE_FETCH_LIMIT_MIN = 50;
 var ISSUE_FETCH_LIMIT_MAX = 1e3;
 var DEFAULT_ISSUE_FETCH_LIMIT = 1e3;
+var DEFAULT_LLM_PROVIDER = "chatgpt";
 async function getBacklogAuthConfig() {
   const result = await storageGet([BACKLOG_AUTH_KEY]);
   const config = result[BACKLOG_AUTH_KEY];
@@ -56,6 +57,7 @@ async function getBacklogAuthConfig() {
   }
   config.issueFetchLimit = normalizeIssueFetchLimit(config.issueFetchLimit);
   config.excludedProjects = normalizeExcludedProjects(config.excludedProjects);
+  config.llmProvider = normalizeLlmProvider(config.llmProvider);
   return config;
 }
 async function saveBacklogAuthConfig(config) {
@@ -93,6 +95,12 @@ function normalizeExcludedProjects(raw) {
     seen.add(trimmed);
   });
   return Array.from(seen);
+}
+function normalizeLlmProvider(value) {
+  if (value === "gemini") {
+    return "gemini";
+  }
+  return DEFAULT_LLM_PROVIDER;
 }
 
 // src/shared/promptTemplate.ts
@@ -142,6 +150,7 @@ var promptResetButton = document.getElementById("prompt-reset");
 var promptStatusEl = document.getElementById("prompt-status");
 var issueFetchLimitInput = document.getElementById("issue-fetch-limit");
 var excludedProjectsTextarea = document.getElementById("excluded-projects");
+var llmProviderSelect = document.getElementById("llm-provider");
 var confirmDialog = null;
 async function populateForm() {
   const config = await getBacklogAuthConfig();
@@ -164,6 +173,9 @@ async function populateForm() {
   }
   if (excludedProjectsTextarea) {
     excludedProjectsTextarea.value = (config.excludedProjects ?? []).join("\n");
+  }
+  if (llmProviderSelect) {
+    llmProviderSelect.value = config.llmProvider ?? DEFAULT_LLM_PROVIDER;
   }
   setStatus(`\u4FDD\u5B58\u6E08\u307F: ${config.spaceDomain}.${config.host}`);
 }
@@ -200,6 +212,9 @@ async function handleSubmit(event) {
   }
   if (excludedProjectsTextarea) {
     config.excludedProjects = normalizeExcludedProjects(parseExcludedProjectsInput(excludedProjectsTextarea.value));
+  }
+  if (llmProviderSelect) {
+    config.llmProvider = normalizeLlmProvider(llmProviderSelect.value);
   }
   if (!config.spaceDomain || !config.apiKey) {
     setStatus("\u30B9\u30DA\u30FC\u30B9\u30C9\u30E1\u30A4\u30F3\u3068 API \u30AD\u30FC\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044\u3002", true);

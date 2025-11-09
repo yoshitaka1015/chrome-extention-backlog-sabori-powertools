@@ -33,7 +33,8 @@
   ],
   "host_permissions": [
     "https://chat.openai.com/*",
-    "https://chatgpt.com/*"
+    "https://chatgpt.com/*",
+    "https://gemini.google.com/*"
   ],
   "background": {
     "service_worker": "background/serviceWorker.js",
@@ -74,6 +75,15 @@
       ],
       "js": [
         "content/chatgpt/index.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://gemini.google.com/*"
+      ],
+      "js": [
+        "content/gemini/index.js"
       ],
       "run_at": "document_idle"
     }

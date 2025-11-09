@@ -1,10 +1,51 @@
 import { CHATGPT_PROMPT_TEMPLATE_KEY, getPromptTemplate } from "@shared/promptTemplate";
-import { BACKLOG_AUTH_KEY } from "@shared/backlogConfig";
-import type { BacklogAuthConfig } from "@shared/backlogConfig";
+import { BACKLOG_AUTH_KEY, DEFAULT_LLM_PROVIDER, normalizeLlmProvider } from "@shared/backlogConfig";
+import type { BacklogAuthConfig, LlmProvider } from "@shared/backlogConfig";
 
 const CHATGPT_URL = "https://chatgpt.com/?temporary-chat=true";
+const GEMINI_URL = "https://gemini.google.com/app?hl=ja";
 const STORAGE_LAST_PROJECT_ID_KEY = "sidepanel:lastProjectId";
 const STORAGE_PROJECT_PREFS_KEY = "sidepanel:lastProjectPrefs";
+
+type LlmProviderInfo = {
+  id: LlmProvider;
+  label: string;
+  cardTitle: string;
+  description: string;
+  openButtonLabel: string;
+  successMessage: (hasWarnings: boolean, warnings: string[]) => string;
+  openUrl: string;
+  noTabError: string;
+};
+
+const LLM_PROVIDER_CONFIG: Record<LlmProvider, LlmProviderInfo> = {
+  chatgpt: {
+    id: "chatgpt",
+    label: "ChatGPT",
+    cardTitle: "ChatGPT 連携",
+    description: "チケットについての情報をクリップボードにコピーして、以下のボタンを押してください。",
+    openButtonLabel: "ChatGPT を開く",
+    successMessage: (hasWarnings, warnings) =>
+      hasWarnings
+        ? `ChatGPT の JSON を取り込みました。（未設定: ${warnings.join(", ")}）`
+        : "ChatGPT の JSON を取り込みました。",
+    openUrl: CHATGPT_URL,
+    noTabError: "ChatGPT のタブが見つかりません。先に ChatGPT を開いてください。"
+  },
+  gemini: {
+    id: "gemini",
+    label: "Gemini",
+    cardTitle: "Gemini 連携",
+    description: "チケットの情報をコピーしたあと、以下のボタンから Gemini を開いてください。",
+    openButtonLabel: "Gemini を開く",
+    successMessage: (hasWarnings, warnings) =>
+      hasWarnings
+        ? `Gemini の JSON を取り込みました。（未設定: ${warnings.join(", ")}）`
+        : "Gemini の JSON を取り込みました。",
+    openUrl: GEMINI_URL,
+    noTabError: "Gemini のタブが見つかりません。先に Gemini を開いてください。"
+  }
+};
 
 type ProjectPreference = {
   issueTypeId?: number;
@@ -33,15 +74,57 @@ let formPreferencesLoaded = false;
 let promptTemplateCache: string | null = null;
 const excludedProjectIds = new Set<number>();
 const excludedProjectKeys = new Set<string>();
+let currentLlmProvider: LlmProvider = DEFAULT_LLM_PROVIDER;
+const llmUiRefs: {
+  heading: HTMLHeadingElement | null;
+  description: HTMLParagraphElement | null;
+  openButton: HTMLButtonElement | null;
+} = {
+  heading: null,
+  description: null,
+  openButton: null
+};
+
+function getActiveLlmProvider(): LlmProvider {
+  return currentLlmProvider;
+}
+
+function getLlmProviderInfo(provider: LlmProvider = currentLlmProvider): LlmProviderInfo {
+  return LLM_PROVIDER_CONFIG[provider];
+}
+
+function setActiveLlmProvider(provider: LlmProvider): void {
+  const normalized = normalizeLlmProvider(provider);
+  if (currentLlmProvider === normalized) {
+    return;
+  }
+  currentLlmProvider = normalized;
+  updateLlmUiTexts();
+}
+
+function updateLlmUiTexts(): void {
+  const info = getLlmProviderInfo();
+  if (llmUiRefs.heading) {
+    llmUiRefs.heading.textContent = info.cardTitle;
+  }
+  if (llmUiRefs.description) {
+    llmUiRefs.description.textContent = info.description;
+  }
+  if (llmUiRefs.openButton) {
+    llmUiRefs.openButton.textContent = info.openButtonLabel;
+  }
+}
 
 async function refreshAuthPreferences(): Promise<void> {
   try {
     const response = await chrome.runtime.sendMessage({ type: "backlog-auth:get" });
     const config = response?.config as BacklogAuthConfig | null;
     updateProjectExclusions(config?.excludedProjects ?? []);
+    setActiveLlmProvider(config?.llmProvider ?? DEFAULT_LLM_PROVIDER);
   } catch (error) {
     console.warn("Failed to load Backlog auth config", error);
     updateProjectExclusions([]);
+    setActiveLlmProvider(DEFAULT_LLM_PROVIDER);
   }
 }
 
@@ -182,7 +265,7 @@ async function init(): Promise<void> {
   });
   void loadProjectDetails(true);
 
-  root.append(createChatGPTCard(), createTicketCard());
+  root.append(createLlmCard(), createTicketCard());
 }
 
 function createCardBase(title: string, description?: string): HTMLDivElement {
@@ -377,9 +460,11 @@ function createTicketCard(): HTMLElement {
     importButton.disabled = true;
     try {
       await ensureFormPreferencesLoaded();
-      const response = await chrome.runtime.sendMessage({ type: "chatgpt:json:request" });
+      const provider = getActiveLlmProvider();
+      const response = await chrome.runtime.sendMessage({ type: "llm:json:request", provider });
       if (!response || response.error) {
-        throw new Error(response?.error ?? "ChatGPT から JSON を取得できませんでした。");
+        const info = getLlmProviderInfo(provider);
+        throw new Error(response?.error ?? `${info.label} から JSON を取得できませんでした。`);
       }
       const data = response.data ?? {};
       applyImportedJson(
@@ -467,8 +552,17 @@ function createTicketCard(): HTMLElement {
   return card;
 }
 
-function createChatGPTCard(): HTMLElement {
-  const card = createCardBase("ChatGPT 連携", "チケットについての情報をクリップボードにコピーして、以下のボタンを押してください。");
+function createLlmCard(): HTMLElement {
+  const providerInfo = getLlmProviderInfo();
+  const card = createCardBase(providerInfo.cardTitle, providerInfo.description);
+  const headingEl = card.querySelector("h2");
+  const descriptionEl = card.querySelector(".panel-card__description");
+  if (headingEl) {
+    llmUiRefs.heading = headingEl;
+  }
+  if (descriptionEl) {
+    llmUiRefs.description = descriptionEl;
+  }
 
   void ensureFormPreferencesLoaded();
 
@@ -512,8 +606,12 @@ function createChatGPTCard(): HTMLElement {
   const openButton = document.createElement("button");
   openButton.type = "button";
   openButton.className = "button button--primary";
-  openButton.textContent = "ChatGPT を開く";
+  openButton.textContent = providerInfo.openButtonLabel;
+  llmUiRefs.openButton = openButton;
+  updateLlmUiTexts();
   openButton.addEventListener("click", async () => {
+    const activeProvider = getActiveLlmProvider();
+    const activeInfo = getLlmProviderInfo(activeProvider);
     if (openButton.dataset.loading === "true") {
       return;
     }
@@ -534,7 +632,7 @@ function createChatGPTCard(): HTMLElement {
       copyButton.hidden = false;
       copyButton.textContent = "プロンプトをコピーする";
     } catch (error) {
-      console.warn("Failed to prepare ChatGPT prompt", error);
+      console.warn("Failed to prepare prompt for provider", error);
       resetPromptCache();
       return;
     } finally {
@@ -542,8 +640,8 @@ function createChatGPTCard(): HTMLElement {
       openButton.disabled = false;
     }
 
-    chrome.tabs.create({ url: CHATGPT_URL }).catch((error) => {
-      console.warn("Failed to open ChatGPT tab", error);
+    chrome.tabs.create({ url: activeInfo.openUrl }).catch((error) => {
+      console.warn("Failed to open provider tab", error);
     });
   });
 
@@ -881,9 +979,11 @@ function applyImportedJson(
   });
 
   if (warnings.length) {
-    showFeedback("success", `ChatGPT の JSON を取り込みました。（未設定: ${warnings.join(", ")}）`);
+    const info = getLlmProviderInfo();
+    showFeedback("success", info.successMessage(true, warnings));
   } else {
-    showFeedback("success", "ChatGPT の JSON を取り込みました。");
+    const info = getLlmProviderInfo();
+    showFeedback("success", info.successMessage(false, warnings));
   }
 }
 

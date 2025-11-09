@@ -43,6 +43,7 @@ var BACKLOG_ISSUES_REVISION_KEY = "backlogManagerIssuesRevision";
 var ISSUE_FETCH_LIMIT_MIN = 50;
 var ISSUE_FETCH_LIMIT_MAX = 1e3;
 var DEFAULT_ISSUE_FETCH_LIMIT = 1e3;
+var DEFAULT_LLM_PROVIDER = "chatgpt";
 async function getBacklogAuthConfig() {
   const result = await storageGet([BACKLOG_AUTH_KEY]);
   const config = result[BACKLOG_AUTH_KEY];
@@ -57,6 +58,7 @@ async function getBacklogAuthConfig() {
   }
   config.issueFetchLimit = normalizeIssueFetchLimit(config.issueFetchLimit);
   config.excludedProjects = normalizeExcludedProjects(config.excludedProjects);
+  config.llmProvider = normalizeLlmProvider(config.llmProvider);
   return config;
 }
 function normalizeIssueFetchLimit(value) {
@@ -82,6 +84,12 @@ function normalizeExcludedProjects(raw) {
     seen.add(trimmed);
   });
   return Array.from(seen);
+}
+function normalizeLlmProvider(value) {
+  if (value === "gemini") {
+    return "gemini";
+  }
+  return DEFAULT_LLM_PROVIDER;
 }
 
 // src/content/topbar/index.ts

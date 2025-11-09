@@ -163,6 +163,14 @@
         <input id="api-key" name="apiKey" type="password" required />
       </div>
       <div class="field">
+        <label for="llm-provider">AI 連携サービス</label>
+        <select id="llm-provider" name="llmProvider">
+          <option value="chatgpt">ChatGPT</option>
+          <option value="gemini">Gemini</option>
+        </select>
+        <p class="field__note">サイドパネルで利用するサービスを選択してください。</p>
+      </div>
+      <div class="field">
         <label for="issue-fetch-limit">課題取得件数上限</label>
         <input
           id="issue-fetch-limit"
@@ -215,7 +223,7 @@
     <p class="status" id="status"></p>
 
     <section class="prompt-card">
-      <h2>ChatGPT プロンプト設定</h2>
+      <h2>AI プロンプト設定</h2>
       <p class="field__note">以下のプレースホルダーを利用できます: {{TODAY}}, {{ISSUE_TYPES}}, {{CATEGORIES}}, {{ASSIGNEES}}, {{INPUT_TEXT}}, {{JSON_SCHEMA}}</p>
       <form id="prompt-form">
         <textarea id="prompt-template" name="promptTemplate" class="prompt-textarea"></textarea>
