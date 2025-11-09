@@ -468,8 +468,8 @@ function renderTopBar(shadowRoot, preferences) {
       font-family: "Inter", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
       font-size: 13px;
       line-height: 1.4;
-      background: #f0f0f0;
-      color: #1f2933;
+      background: #333333;
+      color: #f8fafc;
       padding: 0 18px ${BAR_ACCENT_HEIGHT_PX}px;
       display: flex;
       gap: 16px;
@@ -521,7 +521,7 @@ function renderTopBar(shadowRoot, preferences) {
       font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 0.12em;
-      color: #94a3b8;
+      color: #cbd5f5;
       margin: ${SECTION_LABEL_MARGIN_TOP}px 0 ${SECTION_LABEL_MARGIN_BOTTOM}px;
     }
 
@@ -714,7 +714,7 @@ function renderTopBar(shadowRoot, preferences) {
       align-items: center;
       height: 26px;
       font-size: 11px;
-      color: #64748b;
+      color: #e2e8f0;
       margin-right: 8px;
       letter-spacing: 0.04em;
     }
@@ -722,7 +722,7 @@ function renderTopBar(shadowRoot, preferences) {
     .actions__level {
       margin-left: 6px;
       margin-right: 0;
-      color: #2c997a;
+      color: #34d399;
       font-size: 11px;
       font-weight: 700;
       letter-spacing: 0.05em;
@@ -746,9 +746,9 @@ function renderTopBar(shadowRoot, preferences) {
     }
 
     .actions__icon {
-      border: 1px solid #64748b;
+      border: 1px solid #e2e8f0;
       background: transparent;
-      color: #64748b;
+      color: #e2e8f0;
       width: 26px;
       height: 26px;
       border-radius: 50%;
@@ -762,9 +762,9 @@ function renderTopBar(shadowRoot, preferences) {
     }
 
     .actions__icon:hover {
-      background: rgba(148, 163, 184, 0.18);
-      color: #1f2933;
-      border-color: #94a3b8;
+      background: rgba(226, 232, 240, 0.18);
+      color: #ffffff;
+      border-color: #a3e635;
     }
 
     .actions__icon:focus-visible {
@@ -810,7 +810,7 @@ function renderTopBar(shadowRoot, preferences) {
 
     .section-message {
       font-size: 11px;
-      color: #94a3b8;
+      color: #e2e8f0;
       padding: 4px 0;
     }
 
