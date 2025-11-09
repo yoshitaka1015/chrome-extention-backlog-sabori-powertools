@@ -46,11 +46,25 @@ async function getPromptTemplate() {
 // src/shared/backlogConfig.ts
 var BACKLOG_AUTH_KEY = "backlogAuth";
 var DEFAULT_LLM_PROVIDER = "chatgpt";
+var AUTO_IMPORT_DELAY_MIN = 10;
+var AUTO_IMPORT_DELAY_MAX = 600;
+var DEFAULT_AUTO_IMPORT_DELAY_SECONDS = 60;
+var AUTO_CREATE_DELAY_MIN = 5;
+var AUTO_CREATE_DELAY_MAX = 300;
+var DEFAULT_AUTO_CREATE_DELAY_SECONDS = 15;
 function normalizeLlmProvider(value) {
   if (value === "gemini") {
     return "gemini";
   }
   return DEFAULT_LLM_PROVIDER;
+}
+function normalizeAutoDelay(value, min, max, fallback) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  const clamped = Math.floor(Math.max(min, Math.min(max, numeric)));
+  return clamped;
 }
 
 // src/sidepanel/index.ts
@@ -426,6 +440,8 @@ function createTicketCard() {
   let autoImportRemainingSeconds = 0;
   let autoProcessPhase = "idle";
   let pendingAutoCloseTabId = null;
+  let autoImportDelaySeconds2 = DEFAULT_AUTO_IMPORT_DELAY_SECONDS;
+  let autoCreateDelaySeconds2 = DEFAULT_AUTO_CREATE_DELAY_SECONDS;
   function showFeedback(type, message) {
     feedback.hidden = false;
     feedback.textContent = message;
@@ -493,11 +509,11 @@ function createTicketCard() {
   }
   async function startAutoCreateCountdown() {
     autoProcessPhase = "wait-create";
-    autoImportRemainingSeconds = autoCreateDelaySeconds;
+    autoImportRemainingSeconds = autoCreateDelaySeconds2;
     autoImportButton.dataset.timer = "auto-create";
     autoImportButton.disabled = false;
     autoImportButton.textContent = `\u30C1\u30B1\u30C3\u30C8\u4F5C\u6210\u307E\u3067 ${autoImportRemainingSeconds}\u79D2`;
-    showFeedback("success", `${autoCreateDelaySeconds}\u79D2\u5F8C\u306B\u81EA\u52D5\u3067\u30C1\u30B1\u30C3\u30C8\u4F5C\u6210\u3092\u5B9F\u884C\u3057\u307E\u3059\u3002`);
+    showFeedback("success", `${autoCreateDelaySeconds2}\u79D2\u5F8C\u306B\u81EA\u52D5\u3067\u30C1\u30B1\u30C3\u30C8\u4F5C\u6210\u3092\u5B9F\u884C\u3057\u307E\u3059\u3002`);
     if (autoImportIntervalId) {
       window.clearInterval(autoImportIntervalId);
     }
@@ -528,7 +544,7 @@ function createTicketCard() {
       autoImportButton.disabled = true;
       await submitTicketCreation({ auto: true, tabIdToClose: pendingAutoCloseTabId });
       resetAutoImportTimer();
-    }, autoCreateDelaySeconds * 1e3);
+    }, autoCreateDelaySeconds2 * 1e3);
   }
   autoImportButton.addEventListener("click", () => {
     if (autoImportTimeoutId) {
@@ -539,13 +555,13 @@ function createTicketCard() {
       showFeedback("error", "\u5148\u306B\u30D7\u30ED\u30B8\u30A7\u30AF\u30C8\u3092\u9078\u629E\u3057\u3066\u304F\u3060\u3055\u3044\u3002");
       return;
     }
-    autoImportRemainingSeconds = autoImportDelaySeconds;
+    autoImportRemainingSeconds = autoImportDelaySeconds2;
     autoProcessPhase = "wait-import";
     autoImportButton.dataset.timer = "active";
     autoImportButton.textContent = `\u81EA\u52D5\u53D6\u308A\u8FBC\u307F\u307E\u3067 ${autoImportRemainingSeconds}\u79D2`;
     showFeedback(
       "success",
-      `${autoImportDelaySeconds}\u79D2\u5F8C\u306B AI \u306E JSON \u3092\u53D6\u308A\u8FBC\u307F\u3001\u305D\u306E\u5F8C\u30C1\u30B1\u30C3\u30C8\u4F5C\u6210\u307E\u3067\u81EA\u52D5\u3067\u9032\u3081\u307E\u3059\u3002`
+      `${autoImportDelaySeconds2}\u79D2\u5F8C\u306B AI \u306E JSON \u3092\u53D6\u308A\u8FBC\u307F\u3001\u305D\u306E\u5F8C\u30C1\u30B1\u30C3\u30C8\u4F5C\u6210\u307E\u3067\u81EA\u52D5\u3067\u9032\u3081\u307E\u3059\u3002`
     );
     autoImportIntervalId = window.setInterval(() => {
       autoImportRemainingSeconds -= 1;
@@ -569,7 +585,7 @@ function createTicketCard() {
       autoImportButton.textContent = "\u53D6\u308A\u8FBC\u307F\u4E2D\u2026";
       autoImportButton.disabled = true;
       await runAutoImportWorkflow(true);
-    }, autoImportDelaySeconds * 1e3);
+    }, autoImportDelaySeconds2 * 1e3);
   });
   importButton.addEventListener("click", async () => {
     if (autoImportTimeoutId) {

@@ -1,5 +1,16 @@
 import { CHATGPT_PROMPT_TEMPLATE_KEY, getPromptTemplate } from "@shared/promptTemplate";
-import { BACKLOG_AUTH_KEY, DEFAULT_LLM_PROVIDER, normalizeLlmProvider } from "@shared/backlogConfig";
+import {
+  BACKLOG_AUTH_KEY,
+  DEFAULT_LLM_PROVIDER,
+  DEFAULT_AUTO_IMPORT_DELAY_SECONDS,
+  DEFAULT_AUTO_CREATE_DELAY_SECONDS,
+  AUTO_IMPORT_DELAY_MIN,
+  AUTO_IMPORT_DELAY_MAX,
+  AUTO_CREATE_DELAY_MIN,
+  AUTO_CREATE_DELAY_MAX,
+  normalizeLlmProvider,
+  normalizeAutoDelay
+} from "@shared/backlogConfig";
 import type { BacklogAuthConfig, LlmProvider } from "@shared/backlogConfig";
 
 const CHATGPT_URL = "https://chatgpt.com/?temporary-chat=true";
@@ -451,11 +462,13 @@ function createTicketCard(): HTMLElement {
 
   const titleInput = titleField.input;
   const bodyTextarea = bodyField.textarea;
-  let autoImportTimeoutId: number | null = null;
-  let autoImportIntervalId: number | null = null;
-  let autoImportRemainingSeconds = 0;
-  let autoProcessPhase: "idle" | "wait-import" | "wait-create" = "idle";
-  let pendingAutoCloseTabId: number | null = null;
+let autoImportTimeoutId: number | null = null;
+let autoImportIntervalId: number | null = null;
+let autoImportRemainingSeconds = 0;
+let autoProcessPhase: "idle" | "wait-import" | "wait-create" = "idle";
+let pendingAutoCloseTabId: number | null = null;
+let autoImportDelaySeconds = DEFAULT_AUTO_IMPORT_DELAY_SECONDS;
+let autoCreateDelaySeconds = DEFAULT_AUTO_CREATE_DELAY_SECONDS;
 
   function showFeedback(type: "error" | "success", message: string): void {
     feedback.hidden = false;
