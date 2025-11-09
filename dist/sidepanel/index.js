@@ -456,13 +456,19 @@ function createTicketCard() {
         throw new Error(response?.error ?? `${info.label} \u304B\u3089 JSON \u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002`);
       }
       const data = response.data ?? {};
+      const tabIdToClose = typeof response.tabId === "number" ? response.tabId : null;
       applyImportedJson(
         data,
         { issueTypeSelect, categorySelect, titleInput, bodyTextarea, startDateField, dueDateField },
         showFeedback,
         projectId
       );
-      await submitTicketCreation({ auto: true });
+      const created = await submitTicketCreation({ auto: true });
+      if (created && tabIdToClose) {
+        void chrome.tabs.remove(tabIdToClose).catch((error) => {
+          console.warn("Failed to close AI tab after auto import:", error);
+        });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       showFeedback("error", message);

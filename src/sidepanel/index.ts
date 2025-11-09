@@ -490,13 +490,19 @@ function createTicketCard(): HTMLElement {
         throw new Error(response?.error ?? `${info.label} から JSON を取得できませんでした。`);
       }
       const data = response.data ?? {};
+      const tabIdToClose = typeof response.tabId === "number" ? response.tabId : null;
       applyImportedJson(
         data as Record<string, unknown>,
         { issueTypeSelect, categorySelect, titleInput, bodyTextarea, startDateField, dueDateField },
         showFeedback,
         projectId
       );
-      await submitTicketCreation({ auto: true });
+      const created = await submitTicketCreation({ auto: true });
+      if (created && tabIdToClose) {
+        void chrome.tabs.remove(tabIdToClose).catch((error) => {
+          console.warn("Failed to close AI tab after auto import:", error);
+        });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       showFeedback("error", message);

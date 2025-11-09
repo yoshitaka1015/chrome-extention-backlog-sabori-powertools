@@ -711,7 +711,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message?.type === "llm:json:request") {
     const provider = normalizeLlmProvider(message?.provider);
-    extractJsonFromProvider(provider).then((result) => sendResponse({ data: result.data, raw: result.raw })).catch((error) => sendResponse({ error: error instanceof Error ? error.message : String(error) }));
+    extractJsonFromProvider(provider).then((result) => sendResponse({ data: result.data, raw: result.raw, tabId: result.tabId })).catch((error) => sendResponse({ error: error instanceof Error ? error.message : String(error) }));
     return true;
   }
   if (message?.type === "chatgpt:json:request") {
@@ -754,35 +754,34 @@ function delay(ms) {
 }
 async function extractJsonFromProvider(provider) {
   if (provider === "gemini") {
-    return extractJsonFromGemini();
+    return extractJsonFromTabs({
+      patterns: GEMINI_URL_PATTERNS,
+      messageType: "gemini:extract-json",
+      notFoundMessage: "Gemini \u306E\u30BF\u30D6\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002\u5148\u306B Gemini \u3092\u958B\u3044\u3066\u304F\u3060\u3055\u3044\u3002",
+      failureMessage: "Gemini \u304B\u3089\u6709\u52B9\u306A JSON \u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002"
+    });
   }
-  return extractJsonFromChatGpt();
+  return extractJsonFromTabs({
+    patterns: CHATGPT_URL_PATTERNS,
+    messageType: "chatgpt:extract-json",
+    notFoundMessage: "ChatGPT \u306E\u30BF\u30D6\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002\u5148\u306B ChatGPT \u3092\u958B\u3044\u3066\u304F\u3060\u3055\u3044\u3002",
+    failureMessage: "ChatGPT \u304B\u3089\u6709\u52B9\u306A JSON \u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002"
+  });
 }
-async function extractJsonFromChatGpt() {
-  return extractJsonFromTabs(
-    CHATGPT_URL_PATTERNS,
-    "chatgpt:extract-json",
-    "ChatGPT \u306E\u30BF\u30D6\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002\u5148\u306B ChatGPT \u3092\u958B\u3044\u3066\u304F\u3060\u3055\u3044\u3002",
-    "ChatGPT \u304B\u3089\u6709\u52B9\u306A JSON \u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002"
-  );
-}
-async function extractJsonFromGemini() {
-  return extractJsonFromTabs(
-    GEMINI_URL_PATTERNS,
-    "gemini:extract-json",
-    "Gemini \u306E\u30BF\u30D6\u304C\u898B\u3064\u304B\u308A\u307E\u305B\u3093\u3002\u5148\u306B Gemini \u3092\u958B\u3044\u3066\u304F\u3060\u3055\u3044\u3002",
-    "Gemini \u304B\u3089\u6709\u52B9\u306A JSON \u3092\u53D6\u5F97\u3067\u304D\u307E\u305B\u3093\u3067\u3057\u305F\u3002"
-  );
-}
-async function extractJsonFromTabs(patterns, messageType, notFoundMessage, failureMessage) {
+async function extractJsonFromTabs({
+  patterns,
+  messageType,
+  notFoundMessage,
+  failureMessage
+}) {
   const tabs = await chrome.tabs.query({ url: patterns });
   if (!tabs.length) {
     throw new Error(notFoundMessage);
   }
-  const orderedTabs = [
-    ...tabs.filter((tab) => tab.active),
-    ...tabs.filter((tab) => !tab.active)
-  ];
+  const activeTabs = tabs.filter((tab) => tab.active);
+  const inactiveTabs = tabs.filter((tab) => !tab.active);
+  const orderedTabs = [...activeTabs, ...inactiveTabs];
+  let matchedResults = [];
   let lastError = null;
   for (const tab of orderedTabs) {
     if (!tab.id) {
@@ -791,7 +790,11 @@ async function extractJsonFromTabs(patterns, messageType, notFoundMessage, failu
     try {
       const response = await chrome.tabs.sendMessage(tab.id, { type: messageType });
       if (response?.ok) {
-        return { data: response.data, raw: response.raw };
+        matchedResults.push({ data: response.data, raw: response.raw, tabId: tab.id, windowId: tab.windowId });
+        if (matchedResults.length > 1) {
+          break;
+        }
+        continue;
       }
       if (response?.error) {
         lastError = response.error;
@@ -799,6 +802,12 @@ async function extractJsonFromTabs(patterns, messageType, notFoundMessage, failu
     } catch (error) {
       lastError = error;
     }
+  }
+  if (matchedResults.length > 1) {
+    throw new Error("\u8907\u6570\u306E\u30BF\u30D6\u3067 JSON \u304C\u691C\u51FA\u3055\u308C\u305F\u305F\u3081\u3001\u3069\u306E\u7D50\u679C\u3092\u63A1\u7528\u3059\u308B\u304B\u5224\u65AD\u3067\u304D\u307E\u305B\u3093\u3002");
+  }
+  if (matchedResults.length === 1) {
+    return matchedResults[0];
   }
   if (typeof lastError === "string" && lastError.trim().length > 0) {
     throw new Error(lastError);

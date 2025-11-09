@@ -105,7 +105,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "llm:json:request") {
     const provider = normalizeLlmProvider(message?.provider);
     extractJsonFromProvider(provider)
-      .then((result) => sendResponse({ data: result.data, raw: result.raw }))
+      .then((result) => sendResponse({ data: result.data, raw: result.raw, tabId: result.tabId }))
       .catch((error) => sendResponse({ error: error instanceof Error ? error.message : String(error) }));
     return true;
   }
@@ -159,47 +159,51 @@ function delay(ms: number): Promise<void> {
   });
 }
 
-async function extractJsonFromProvider(provider: "chatgpt" | "gemini"): Promise<{ data: unknown; raw: string }> {
+type JsonExtractionResult = {
+  data: unknown;
+  raw: string;
+  tabId: number;
+  windowId: number | undefined;
+};
+
+async function extractJsonFromProvider(provider: "chatgpt" | "gemini"): Promise<JsonExtractionResult> {
   if (provider === "gemini") {
-    return extractJsonFromGemini();
+    return extractJsonFromTabs({
+      patterns: GEMINI_URL_PATTERNS,
+      messageType: "gemini:extract-json",
+      notFoundMessage: "Gemini のタブが見つかりません。先に Gemini を開いてください。",
+      failureMessage: "Gemini から有効な JSON を取得できませんでした。"
+    });
   }
-  return extractJsonFromChatGpt();
+  return extractJsonFromTabs({
+    patterns: CHATGPT_URL_PATTERNS,
+    messageType: "chatgpt:extract-json",
+    notFoundMessage: "ChatGPT のタブが見つかりません。先に ChatGPT を開いてください。",
+    failureMessage: "ChatGPT から有効な JSON を取得できませんでした。"
+  });
 }
 
-async function extractJsonFromChatGpt(): Promise<{ data: unknown; raw: string }> {
-  return extractJsonFromTabs(
-    CHATGPT_URL_PATTERNS,
-    "chatgpt:extract-json",
-    "ChatGPT のタブが見つかりません。先に ChatGPT を開いてください。",
-    "ChatGPT から有効な JSON を取得できませんでした。"
-  );
-}
-
-async function extractJsonFromGemini(): Promise<{ data: unknown; raw: string }> {
-  return extractJsonFromTabs(
-    GEMINI_URL_PATTERNS,
-    "gemini:extract-json",
-    "Gemini のタブが見つかりません。先に Gemini を開いてください。",
-    "Gemini から有効な JSON を取得できませんでした。"
-  );
-}
-
-async function extractJsonFromTabs(
-  patterns: string[],
-  messageType: string,
-  notFoundMessage: string,
-  failureMessage: string
-): Promise<{ data: unknown; raw: string }> {
+async function extractJsonFromTabs({
+  patterns,
+  messageType,
+  notFoundMessage,
+  failureMessage
+}: {
+  patterns: string[];
+  messageType: string;
+  notFoundMessage: string;
+  failureMessage: string;
+}): Promise<JsonExtractionResult> {
   const tabs = await chrome.tabs.query({ url: patterns });
   if (!tabs.length) {
     throw new Error(notFoundMessage);
   }
 
-  const orderedTabs = [
-    ...tabs.filter((tab) => tab.active),
-    ...tabs.filter((tab) => !tab.active)
-  ];
+  const activeTabs = tabs.filter((tab) => tab.active);
+  const inactiveTabs = tabs.filter((tab) => !tab.active);
+  const orderedTabs = [...activeTabs, ...inactiveTabs];
 
+  let matchedResults: JsonExtractionResult[] = [];
   let lastError: unknown = null;
   for (const tab of orderedTabs) {
     if (!tab.id) {
@@ -208,7 +212,11 @@ async function extractJsonFromTabs(
     try {
       const response = await chrome.tabs.sendMessage(tab.id, { type: messageType });
       if (response?.ok) {
-        return { data: response.data, raw: response.raw };
+          matchedResults.push({ data: response.data, raw: response.raw, tabId: tab.id, windowId: tab.windowId });
+          if (matchedResults.length > 1) {
+            break;
+          }
+          continue;
       }
       if (response?.error) {
         lastError = response.error;
@@ -216,6 +224,14 @@ async function extractJsonFromTabs(
     } catch (error) {
       lastError = error;
     }
+  }
+
+  if (matchedResults.length > 1) {
+    throw new Error("複数のタブで JSON が検出されたため、どの結果を採用するか判断できません。");
+  }
+
+  if (matchedResults.length === 1) {
+    return matchedResults[0];
   }
 
   if (typeof lastError === "string" && lastError.trim().length > 0) {
