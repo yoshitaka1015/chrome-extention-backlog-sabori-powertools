@@ -125,6 +125,12 @@ var DATA_ORIGINAL_PADDING = "backlogManagerOriginalPaddingTop";
 var DATA_ORIGINAL_SCROLL_PADDING = "backlogManagerOriginalScrollPaddingTop";
 var DATA_OBSERVER_ACTIVE = "backlogManagerObserverActive";
 var DATA_ORIGINAL_TOP = "backlogManagerOriginalTopPx";
+var DATA_ORIGINAL_BODY_HEIGHT = "backlogManagerOriginalBodyHeight";
+var DATA_ORIGINAL_ROOT_HEIGHT = "backlogManagerOriginalRootHeight";
+var DATA_ORIGINAL_BODY_MIN_HEIGHT = "backlogManagerOriginalBodyMinHeight";
+var DATA_ORIGINAL_ROOT_MIN_HEIGHT = "backlogManagerOriginalRootMinHeight";
+var DATA_HEIGHT_COMPENSATED = "backlogManagerHeightCompensated";
+var VIEWPORT_SHIM_EVENT = "backlogManagerViewportShim";
 var STORAGE_MINIMIZED_KEY = "backlogManagerTopbarMinimized";
 var STORAGE_FOCUSED_TASK_KEY = "backlogManagerFocusedTaskId";
 var layoutCheckScheduled = false;
@@ -180,6 +186,9 @@ var focusedTaskId = null;
 var celebrationHideTimer;
 var celebrationArmed = false;
 var currentLevel = 1;
+function isSheetsPage() {
+  return location.hostname === "docs.google.com" && location.pathname.startsWith("/spreadsheets");
+}
 function getIndicatorHeight() {
   if (!minimizedIndicator || minimizedIndicator.style.display === "none") {
     return 0;
@@ -276,21 +285,47 @@ function setFocusedTask(context, taskId, options = {}) {
 }
 function ensureShadowHost() {
   let host = document.getElementById(SHADOW_HOST_ID);
-  if (host) {
-    return null;
+  if (!host) {
+    host = document.createElement("div");
+    host.id = SHADOW_HOST_ID;
+    host.style.position = "fixed";
+    host.style.top = "0";
+    host.style.left = "0";
+    host.style.right = "0";
+    host.style.zIndex = "2147483647";
+    host.style.pointerEvents = "auto";
+    const shadowRoot = host.attachShadow({ mode: "open" });
+    document.documentElement.appendChild(host);
+    host.style.height = `${currentBarHeight}px`;
+    host.style.display = isMinimized ? "none" : "block";
+    return shadowRoot;
   }
-  host = document.createElement("div");
-  host.id = SHADOW_HOST_ID;
+  if (!host.shadowRoot) {
+    try {
+      const shadowRoot = host.attachShadow({ mode: "open" });
+      host.style.height = `${currentBarHeight}px`;
+      host.style.display = isMinimized ? "none" : "block";
+      host.style.position = "fixed";
+      host.style.top = "0";
+      host.style.left = "0";
+      host.style.right = "0";
+      host.style.zIndex = "2147483647";
+      host.style.pointerEvents = "auto";
+      return shadowRoot;
+    } catch (error) {
+      console.warn("Failed to attach shadow to existing host", error);
+      return null;
+    }
+  }
+  host.style.height = `${currentBarHeight}px`;
+  host.style.display = isMinimized ? "none" : "block";
   host.style.position = "fixed";
   host.style.top = "0";
   host.style.left = "0";
   host.style.right = "0";
-  host.style.height = `${currentBarHeight}px`;
   host.style.zIndex = "2147483647";
   host.style.pointerEvents = "auto";
-  const shadowRoot = host.attachShadow({ mode: "open" });
-  document.documentElement.appendChild(host);
-  return shadowRoot;
+  return host.shadowRoot;
 }
 function ensurePageSpacing() {
   applyPaddingTop();
@@ -307,8 +342,17 @@ function applyPaddingTop() {
   const baseBodyPadding = ensureBasePadding(body, DATA_ORIGINAL_PADDING, bodyComputed.paddingTop);
   const baseScrollPadding = ensureBasePadding(root, DATA_ORIGINAL_SCROLL_PADDING, rootComputed.scrollPaddingTop);
   const effectiveHeight = isMinimized ? indicatorHeight : currentBarHeight;
+  if (isSheetsPage()) {
+    body.style.paddingTop = `${baseBodyPadding}px`;
+    root.style.scrollPaddingTop = `${baseScrollPadding}px`;
+    applyViewportShim(0);
+    restoreViewportHeight(body, root);
+    return;
+  }
   body.style.paddingTop = `${baseBodyPadding + effectiveHeight}px`;
   root.style.scrollPaddingTop = `${baseScrollPadding + effectiveHeight}px`;
+  applyViewportHeightCompensation(effectiveHeight, isMinimized, body, root, bodyComputed, rootComputed);
+  applyViewportShim(effectiveHeight);
 }
 function ensureBasePadding(element, key, computedValue) {
   if (!element.dataset[key]) {
@@ -323,6 +367,80 @@ function parseCssLength(value) {
   }
   const parsed = parseFloat(value);
   return Number.isNaN(parsed) ? 0 : parsed;
+}
+function isOverflowHidden(value) {
+  return value === "hidden" || value === "clip";
+}
+function applyViewportHeightCompensation(effectiveHeight, minimized, body, root, bodyComputed, rootComputed) {
+  if (minimized) {
+    restoreViewportHeight(body, root);
+    return;
+  }
+  if (effectiveHeight <= 0) {
+    restoreViewportHeight(body, root);
+    return;
+  }
+  const rootOverflowHidden = isOverflowHidden(rootComputed.overflowY) || isOverflowHidden(rootComputed.overflow);
+  const bodyOverflowHidden = isOverflowHidden(bodyComputed.overflowY) || isOverflowHidden(bodyComputed.overflow);
+  if (!rootOverflowHidden && !bodyOverflowHidden) {
+    restoreViewportHeight(body, root);
+    return;
+  }
+  rememberOriginalHeight(body, DATA_ORIGINAL_BODY_HEIGHT, DATA_ORIGINAL_BODY_MIN_HEIGHT);
+  rememberOriginalHeight(root, DATA_ORIGINAL_ROOT_HEIGHT, DATA_ORIGINAL_ROOT_MIN_HEIGHT);
+  const heightValue = `calc(100vh - ${effectiveHeight}px)`;
+  setHeightWithPriority(body, "height", heightValue);
+  setHeightWithPriority(body, "minHeight", heightValue);
+  setHeightWithPriority(root, "height", heightValue);
+  setHeightWithPriority(root, "minHeight", heightValue);
+  body.dataset[DATA_HEIGHT_COMPENSATED] = "true";
+  root.dataset[DATA_HEIGHT_COMPENSATED] = "true";
+}
+function rememberOriginalHeight(element, heightKey, minHeightKey) {
+  if (!element.dataset[DATA_HEIGHT_COMPENSATED]) {
+    element.dataset[heightKey] = element.style.height || "";
+    element.dataset[minHeightKey] = element.style.minHeight || "";
+  }
+}
+function restoreViewportHeight(body, root) {
+  if (body.dataset[DATA_HEIGHT_COMPENSATED]) {
+    restoreHeightWithPriority(body, "height", body.dataset[DATA_ORIGINAL_BODY_HEIGHT]);
+    restoreHeightWithPriority(body, "minHeight", body.dataset[DATA_ORIGINAL_BODY_MIN_HEIGHT]);
+    delete body.dataset[DATA_HEIGHT_COMPENSATED];
+    delete body.dataset[DATA_ORIGINAL_BODY_HEIGHT];
+    delete body.dataset[DATA_ORIGINAL_BODY_MIN_HEIGHT];
+  }
+  if (root.dataset[DATA_HEIGHT_COMPENSATED]) {
+    restoreHeightWithPriority(root, "height", root.dataset[DATA_ORIGINAL_ROOT_HEIGHT]);
+    restoreHeightWithPriority(root, "minHeight", root.dataset[DATA_ORIGINAL_ROOT_MIN_HEIGHT]);
+    delete root.dataset[DATA_HEIGHT_COMPENSATED];
+    delete root.dataset[DATA_ORIGINAL_ROOT_HEIGHT];
+    delete root.dataset[DATA_ORIGINAL_ROOT_MIN_HEIGHT];
+  }
+}
+function setHeightWithPriority(element, property, value) {
+  element.style.setProperty(property, value, "important");
+}
+function restoreHeightWithPriority(element, property, stored) {
+  if (!stored) {
+    element.style.removeProperty(property);
+  } else {
+    element.style.setProperty(property, stored);
+  }
+}
+function applyViewportShim(effectiveHeight) {
+  if (effectiveHeight < 0) {
+    effectiveHeight = 0;
+  }
+  dispatchViewportShimEvent(effectiveHeight);
+}
+function dispatchViewportShimEvent(offset) {
+  try {
+    const event = new CustomEvent(VIEWPORT_SHIM_EVENT, { detail: { offset } });
+    window.dispatchEvent(event);
+  } catch (error) {
+    console.warn("Failed to dispatch viewport shim event", error);
+  }
 }
 function getTodayTaskCount(context) {
   const section = context.sections.today;
@@ -425,6 +543,9 @@ function scheduleLayoutCheck() {
   });
 }
 function adjustFixedAndStickyHeaders() {
+  if (isSheetsPage()) {
+    return;
+  }
   const body = document.body;
   if (!body) {
     return;
@@ -2250,12 +2371,10 @@ async function initTopBar() {
   currentLevel = storedLevel;
   setFocusedTask(null, storedFocusedTask, { persist: false });
   if (storedMinimized) {
-    isMinimized = true;
-    currentBarHeight = 0;
-  } else {
-    isMinimized = false;
-    currentBarHeight = expandedBarHeight;
+    void saveMinimizedState(false);
   }
+  isMinimized = false;
+  currentBarHeight = expandedBarHeight;
   const shadowRoot = ensureShadowHost();
   if (!shadowRoot) {
     return;

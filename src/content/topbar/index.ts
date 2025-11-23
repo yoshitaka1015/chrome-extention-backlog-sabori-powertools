@@ -11,11 +11,18 @@ const DATA_ORIGINAL_PADDING = "backlogManagerOriginalPaddingTop";
 const DATA_ORIGINAL_SCROLL_PADDING = "backlogManagerOriginalScrollPaddingTop";
 const DATA_OBSERVER_ACTIVE = "backlogManagerObserverActive";
 const DATA_ORIGINAL_TOP = "backlogManagerOriginalTopPx";
+const DATA_ORIGINAL_BODY_HEIGHT = "backlogManagerOriginalBodyHeight";
+const DATA_ORIGINAL_ROOT_HEIGHT = "backlogManagerOriginalRootHeight";
+const DATA_ORIGINAL_BODY_MIN_HEIGHT = "backlogManagerOriginalBodyMinHeight";
+const DATA_ORIGINAL_ROOT_MIN_HEIGHT = "backlogManagerOriginalRootMinHeight";
+const DATA_HEIGHT_COMPENSATED = "backlogManagerHeightCompensated";
+const VIEWPORT_SHIM_EVENT = "backlogManagerViewportShim";
 const STORAGE_MINIMIZED_KEY = "backlogManagerTopbarMinimized";
 const STORAGE_FOCUSED_TASK_KEY = "backlogManagerFocusedTaskId";
 
 let layoutCheckScheduled = false;
 const MAX_SCAN_ELEMENTS = 1200;
+const HEIGHT_OVERSIZE_TOLERANCE_PX = 4;
 const SECTION_LABEL_MARGIN_TOP = 1;
 const SECTION_LABEL_MARGIN_BOTTOM = 1;
 const BADGE_ROW_MARGIN_TOP = 0;
@@ -109,6 +116,10 @@ let focusedTaskId: number | null = null;
 let celebrationHideTimer: number | undefined;
 let celebrationArmed = false;
 let currentLevel = 1;
+
+function isSheetsPage(): boolean {
+  return location.hostname === "docs.google.com" && location.pathname.startsWith("/spreadsheets");
+}
 
 function getIndicatorHeight(): number {
   if (!minimizedIndicator || minimizedIndicator.style.display === "none") {
@@ -220,23 +231,50 @@ function setFocusedTask(
 
 function ensureShadowHost(): ShadowRoot | null {
   let host = document.getElementById(SHADOW_HOST_ID);
-  if (host) {
-    return null;
+
+  if (!host) {
+    host = document.createElement("div");
+    host.id = SHADOW_HOST_ID;
+    host.style.position = "fixed";
+    host.style.top = "0";
+    host.style.left = "0";
+    host.style.right = "0";
+    host.style.zIndex = "2147483647";
+    host.style.pointerEvents = "auto";
+    const shadowRoot = host.attachShadow({ mode: "open" });
+    document.documentElement.appendChild(host);
+    host.style.height = `${currentBarHeight}px`;
+    host.style.display = isMinimized ? "none" : "block";
+    return shadowRoot;
   }
 
-  host = document.createElement("div");
-  host.id = SHADOW_HOST_ID;
+  if (!host.shadowRoot) {
+    try {
+      const shadowRoot = host.attachShadow({ mode: "open" });
+      host.style.height = `${currentBarHeight}px`;
+      host.style.display = isMinimized ? "none" : "block";
+      host.style.position = "fixed";
+      host.style.top = "0";
+      host.style.left = "0";
+      host.style.right = "0";
+      host.style.zIndex = "2147483647";
+      host.style.pointerEvents = "auto";
+      return shadowRoot;
+    } catch (error) {
+      console.warn("Failed to attach shadow to existing host", error);
+      return null;
+    }
+  }
+
+  host.style.height = `${currentBarHeight}px`;
+  host.style.display = isMinimized ? "none" : "block";
   host.style.position = "fixed";
   host.style.top = "0";
   host.style.left = "0";
   host.style.right = "0";
-  host.style.height = `${currentBarHeight}px`;
   host.style.zIndex = "2147483647";
   host.style.pointerEvents = "auto";
-
-  const shadowRoot = host.attachShadow({ mode: "open" });
-  document.documentElement.appendChild(host);
-  return shadowRoot;
+  return host.shadowRoot;
 }
 
 function ensurePageSpacing() {
@@ -258,8 +296,19 @@ function applyPaddingTop() {
   const baseScrollPadding = ensureBasePadding(root, DATA_ORIGINAL_SCROLL_PADDING, rootComputed.scrollPaddingTop);
 
   const effectiveHeight = isMinimized ? indicatorHeight : currentBarHeight;
+  if (isSheetsPage()) {
+    body.style.paddingTop = `${baseBodyPadding}px`;
+    root.style.scrollPaddingTop = `${baseScrollPadding}px`;
+    applyViewportShim(0);
+    restoreViewportHeight(body, root);
+    return;
+  }
+
   body.style.paddingTop = `${baseBodyPadding + effectiveHeight}px`;
   root.style.scrollPaddingTop = `${baseScrollPadding + effectiveHeight}px`;
+
+  applyViewportHeightCompensation(effectiveHeight, isMinimized, body, root, bodyComputed, rootComputed);
+  applyViewportShim(effectiveHeight);
 }
 
 function ensureBasePadding(element: HTMLElement, key: string, computedValue: string): number {
@@ -276,6 +325,103 @@ function parseCssLength(value: string): number {
   }
   const parsed = parseFloat(value);
   return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function isOverflowHidden(value: string): boolean {
+  return value === "hidden" || value === "clip";
+}
+
+function applyViewportHeightCompensation(
+  effectiveHeight: number,
+  minimized: boolean,
+  body: HTMLElement,
+  root: HTMLElement,
+  bodyComputed: CSSStyleDeclaration,
+  rootComputed: CSSStyleDeclaration
+): void {
+  if (minimized) {
+    restoreViewportHeight(body, root);
+    return;
+  }
+
+  if (effectiveHeight <= 0) {
+    restoreViewportHeight(body, root);
+    return;
+  }
+
+  const rootOverflowHidden = isOverflowHidden(rootComputed.overflowY) || isOverflowHidden(rootComputed.overflow);
+  const bodyOverflowHidden = isOverflowHidden(bodyComputed.overflowY) || isOverflowHidden(bodyComputed.overflow);
+  if (!rootOverflowHidden && !bodyOverflowHidden) {
+    restoreViewportHeight(body, root);
+    return;
+  }
+
+  rememberOriginalHeight(body, DATA_ORIGINAL_BODY_HEIGHT, DATA_ORIGINAL_BODY_MIN_HEIGHT);
+  rememberOriginalHeight(root, DATA_ORIGINAL_ROOT_HEIGHT, DATA_ORIGINAL_ROOT_MIN_HEIGHT);
+
+  const heightValue = `calc(100vh - ${effectiveHeight}px)`;
+  setHeightWithPriority(body, "height", heightValue);
+  setHeightWithPriority(body, "minHeight", heightValue);
+  setHeightWithPriority(root, "height", heightValue);
+  setHeightWithPriority(root, "minHeight", heightValue);
+  body.dataset[DATA_HEIGHT_COMPENSATED] = "true";
+  root.dataset[DATA_HEIGHT_COMPENSATED] = "true";
+}
+
+function rememberOriginalHeight(element: HTMLElement, heightKey: string, minHeightKey: string): void {
+  if (!element.dataset[DATA_HEIGHT_COMPENSATED]) {
+    element.dataset[heightKey] = element.style.height || "";
+    element.dataset[minHeightKey] = element.style.minHeight || "";
+  }
+}
+
+function restoreViewportHeight(body: HTMLElement, root: HTMLElement): void {
+  if (body.dataset[DATA_HEIGHT_COMPENSATED]) {
+    restoreHeightWithPriority(body, "height", body.dataset[DATA_ORIGINAL_BODY_HEIGHT]);
+    restoreHeightWithPriority(body, "minHeight", body.dataset[DATA_ORIGINAL_BODY_MIN_HEIGHT]);
+    delete body.dataset[DATA_HEIGHT_COMPENSATED];
+    delete body.dataset[DATA_ORIGINAL_BODY_HEIGHT];
+    delete body.dataset[DATA_ORIGINAL_BODY_MIN_HEIGHT];
+  }
+  if (root.dataset[DATA_HEIGHT_COMPENSATED]) {
+    restoreHeightWithPriority(root, "height", root.dataset[DATA_ORIGINAL_ROOT_HEIGHT]);
+    restoreHeightWithPriority(root, "minHeight", root.dataset[DATA_ORIGINAL_ROOT_MIN_HEIGHT]);
+    delete root.dataset[DATA_HEIGHT_COMPENSATED];
+    delete root.dataset[DATA_ORIGINAL_ROOT_HEIGHT];
+    delete root.dataset[DATA_ORIGINAL_ROOT_MIN_HEIGHT];
+  }
+}
+
+function setHeightWithPriority(element: HTMLElement, property: "height" | "minHeight", value: string): void {
+  element.style.setProperty(property, value, "important");
+}
+
+function restoreHeightWithPriority(
+  element: HTMLElement,
+  property: "height" | "minHeight",
+  stored: string | undefined
+): void {
+  if (!stored) {
+    element.style.removeProperty(property);
+  } else {
+    element.style.setProperty(property, stored);
+  }
+}
+
+function applyViewportShim(effectiveHeight: number): void {
+  if (effectiveHeight < 0) {
+    effectiveHeight = 0;
+  }
+  dispatchViewportShimEvent(effectiveHeight);
+}
+
+function dispatchViewportShimEvent(offset: number): void {
+  try {
+    const event = new CustomEvent(VIEWPORT_SHIM_EVENT, { detail: { offset } });
+    window.dispatchEvent(event);
+  } catch (error) {
+    console.warn("Failed to dispatch viewport shim event", error);
+  }
 }
 
 function getTodayTaskCount(context: InteractionContext): number {
@@ -392,6 +538,9 @@ function scheduleLayoutCheck() {
 }
 
 function adjustFixedAndStickyHeaders() {
+  if (isSheetsPage()) {
+    return;
+  }
   const body = document.body;
   if (!body) {
     return;
@@ -2469,13 +2618,12 @@ async function initTopBar(): Promise<void> {
   const storedLevel = await loadStoredLevel();
   currentLevel = storedLevel;
   setFocusedTask(null, storedFocusedTask, { persist: false });
+  // 常に展開状態から開始する（最小化状態が残っているとホスト高さ0pxのままになることがあるため）
   if (storedMinimized) {
-    isMinimized = true;
-    currentBarHeight = 0;
-  } else {
-    isMinimized = false;
-    currentBarHeight = expandedBarHeight;
+    void saveMinimizedState(false);
   }
+  isMinimized = false;
+  currentBarHeight = expandedBarHeight;
   const shadowRoot = ensureShadowHost();
   if (!shadowRoot) {
     return;
