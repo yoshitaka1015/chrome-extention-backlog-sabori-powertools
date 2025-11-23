@@ -1,7 +1,7 @@
 const VIEWPORT_SHIM_EVENT = "backlogManagerViewportShim";
 const FLAG = "__backlogViewportShimLoaded";
 const DEFAULT_OFFSET = 0;
-const MIN_DELTA_BEFORE_SHRINK = 32; // この差分未満なら縮めない
+const MIN_DELTA_BEFORE_SHRINK = 16; // この差分未満なら縮めない
 
 declare global {
   interface Window {
@@ -22,17 +22,19 @@ if (!window[FLAG]) {
   let currentOffset = DEFAULT_OFFSET;
 
   const getBaseInnerHeight = () => {
-    if (visualViewport && typeof visualViewport.height === "number") {
-      return visualViewport.height;
-    }
-    if (originalInner?.get) {
-      try {
-        return originalInner.get.call(window) as number;
-      } catch {
-        // ignore
-      }
-    }
-    return typeof window.innerHeight === "number" ? window.innerHeight : 0;
+    const visual = visualViewport && typeof visualViewport.height === "number" ? visualViewport.height : 0;
+    const inner = typeof window.innerHeight === "number" ? window.innerHeight : 0;
+    const original = originalInner?.get
+      ? (() => {
+          try {
+            return originalInner.get.call(window) as number;
+          } catch {
+            return 0;
+          }
+        })()
+      : 0;
+    const client = typeof document.documentElement.clientHeight === "number" ? document.documentElement.clientHeight : 0;
+    return Math.max(visual, inner, original, client, 0);
   };
 
   const safeDefine = (
