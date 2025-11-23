@@ -2,6 +2,7 @@
 var VIEWPORT_SHIM_EVENT = "backlogManagerViewportShim";
 var FLAG = "__backlogViewportShimLoaded";
 var DEFAULT_OFFSET = 0;
+var MIN_DELTA_BEFORE_SHRINK = 32;
 if (!window[FLAG]) {
   window[FLAG] = true;
   const originalInner = Object.getOwnPropertyDescriptor(window, "innerHeight");
@@ -46,7 +47,16 @@ if (!window[FLAG]) {
     }
   };
   const applyShim = () => {
-    const nextHeight = Math.max(0, Math.floor(getBaseInnerHeight() - currentOffset));
+    const baseHeight = getBaseInnerHeight();
+    if (!Number.isFinite(baseHeight) || baseHeight <= 0) {
+      restoreShim();
+      return;
+    }
+    if (baseHeight <= currentOffset + MIN_DELTA_BEFORE_SHRINK) {
+      restoreShim();
+      return;
+    }
+    const nextHeight = Math.max(0, Math.floor(baseHeight - currentOffset));
     safeDefine(window, "innerHeight", () => nextHeight, originalInner);
     safeDefine(document.documentElement, "clientHeight", () => nextHeight, originalClient);
     safeDefineVisualHeight(() => nextHeight);

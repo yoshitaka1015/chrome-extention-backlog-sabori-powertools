@@ -1,6 +1,7 @@
 const VIEWPORT_SHIM_EVENT = "backlogManagerViewportShim";
 const FLAG = "__backlogViewportShimLoaded";
 const DEFAULT_OFFSET = 0;
+const MIN_DELTA_BEFORE_SHRINK = 32; // この差分未満なら縮めない
 
 declare global {
   interface Window {
@@ -68,7 +69,16 @@ if (!window[FLAG]) {
   };
 
   const applyShim = () => {
-    const nextHeight = Math.max(0, Math.floor(getBaseInnerHeight() - currentOffset));
+    const baseHeight = getBaseInnerHeight();
+    if (!Number.isFinite(baseHeight) || baseHeight <= 0) {
+      restoreShim();
+      return;
+    }
+    if (baseHeight <= currentOffset + MIN_DELTA_BEFORE_SHRINK) {
+      restoreShim();
+      return;
+    }
+    const nextHeight = Math.max(0, Math.floor(baseHeight - currentOffset));
     safeDefine(window, "innerHeight", () => nextHeight, originalInner);
     safeDefine(document.documentElement, "clientHeight", () => nextHeight, originalClient);
     safeDefineVisualHeight(() => nextHeight);
