@@ -343,8 +343,8 @@ function applyPaddingTop() {
   const baseScrollPadding = ensureBasePadding(root, DATA_ORIGINAL_SCROLL_PADDING, rootComputed.scrollPaddingTop);
   const effectiveHeight = isMinimized ? indicatorHeight : currentBarHeight;
   if (isSheetsPage()) {
-    body.style.paddingTop = `${baseBodyPadding}px`;
-    root.style.scrollPaddingTop = `${baseScrollPadding}px`;
+    body.style.paddingTop = `${baseBodyPadding + effectiveHeight}px`;
+    root.style.scrollPaddingTop = `${baseScrollPadding + effectiveHeight}px`;
     applyViewportShim(0);
     restoreViewportHeight(body, root);
     return;
