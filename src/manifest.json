@@ -70,6 +70,17 @@
     },
     {
       "matches": [
+        "https://*/*",
+        "http://*/*"
+      ],
+      "js": [
+        "content/topbar/viewportShimMain.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
         "https://chat.openai.com/*",
         "https://chatgpt.com/*"
       ],

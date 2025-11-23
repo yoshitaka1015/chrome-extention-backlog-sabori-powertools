@@ -117,10 +117,6 @@ let celebrationHideTimer: number | undefined;
 let celebrationArmed = false;
 let currentLevel = 1;
 
-function isSheetsPage(): boolean {
-  return location.hostname === "docs.google.com" && location.pathname.startsWith("/spreadsheets");
-}
-
 function getIndicatorHeight(): number {
   if (!minimizedIndicator || minimizedIndicator.style.display === "none") {
     return 0;
@@ -296,14 +292,6 @@ function applyPaddingTop() {
   const baseScrollPadding = ensureBasePadding(root, DATA_ORIGINAL_SCROLL_PADDING, rootComputed.scrollPaddingTop);
 
   const effectiveHeight = isMinimized ? indicatorHeight : currentBarHeight;
-  if (isSheetsPage()) {
-    body.style.paddingTop = `${baseBodyPadding + effectiveHeight}px`;
-    root.style.scrollPaddingTop = `${baseScrollPadding + effectiveHeight}px`;
-    applyViewportShim(0);
-    restoreViewportHeight(body, root);
-    return;
-  }
-
   body.style.paddingTop = `${baseBodyPadding + effectiveHeight}px`;
   root.style.scrollPaddingTop = `${baseScrollPadding + effectiveHeight}px`;
 
@@ -538,9 +526,6 @@ function scheduleLayoutCheck() {
 }
 
 function adjustFixedAndStickyHeaders() {
-  if (isSheetsPage()) {
-    return;
-  }
   const body = document.body;
   if (!body) {
     return;

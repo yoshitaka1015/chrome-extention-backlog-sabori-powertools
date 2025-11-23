@@ -186,9 +186,6 @@ var focusedTaskId = null;
 var celebrationHideTimer;
 var celebrationArmed = false;
 var currentLevel = 1;
-function isSheetsPage() {
-  return location.hostname === "docs.google.com" && location.pathname.startsWith("/spreadsheets");
-}
 function getIndicatorHeight() {
   if (!minimizedIndicator || minimizedIndicator.style.display === "none") {
     return 0;
@@ -342,13 +339,6 @@ function applyPaddingTop() {
   const baseBodyPadding = ensureBasePadding(body, DATA_ORIGINAL_PADDING, bodyComputed.paddingTop);
   const baseScrollPadding = ensureBasePadding(root, DATA_ORIGINAL_SCROLL_PADDING, rootComputed.scrollPaddingTop);
   const effectiveHeight = isMinimized ? indicatorHeight : currentBarHeight;
-  if (isSheetsPage()) {
-    body.style.paddingTop = `${baseBodyPadding + effectiveHeight}px`;
-    root.style.scrollPaddingTop = `${baseScrollPadding + effectiveHeight}px`;
-    applyViewportShim(0);
-    restoreViewportHeight(body, root);
-    return;
-  }
   body.style.paddingTop = `${baseBodyPadding + effectiveHeight}px`;
   root.style.scrollPaddingTop = `${baseScrollPadding + effectiveHeight}px`;
   applyViewportHeightCompensation(effectiveHeight, isMinimized, body, root, bodyComputed, rootComputed);
@@ -543,9 +533,6 @@ function scheduleLayoutCheck() {
   });
 }
 function adjustFixedAndStickyHeaders() {
-  if (isSheetsPage()) {
-    return;
-  }
   const body = document.body;
   if (!body) {
     return;

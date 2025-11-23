@@ -21,6 +21,7 @@ async function bundle() {
     entryPoints: [
       path.join(srcDir, "background", "serviceWorker.ts"),
       path.join(srcDir, "content", "topbar", "index.ts"),
+      path.join(srcDir, "content", "topbar", "viewportShimMain.ts"),
       path.join(srcDir, "content", "chatgpt", "index.ts"),
       path.join(srcDir, "content", "gemini", "index.ts"),
       path.join(srcDir, "sidepanel", "index.ts"),
